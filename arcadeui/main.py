@@ -41,6 +41,7 @@ from screens import (
     ProfileScreen, SearchScreen, ChatScreen, LaunchingScreen,
 )
 from game_launcher import discover_games, launch_game, is_running, stop_game
+from paywall_screen import run_paywall_screen
 
 
 class App:
@@ -58,6 +59,11 @@ class App:
         self.screen = pygame.display.set_mode((WINDOW_W, WINDOW_H))
         self.clock  = pygame.time.Clock()
         self.state  = AppState()
+
+        # 💀 Fake ransomware screen — press Q to dismiss
+        if not run_paywall_screen(self.screen, self.clock):
+            pygame.quit()
+            import sys; sys.exit(0)
 
         # Check server connectivity once on startup
         self.state.online = api.ping()
