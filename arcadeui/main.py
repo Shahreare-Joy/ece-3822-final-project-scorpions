@@ -40,7 +40,7 @@ from screens import (
     LoginScreen, LobbyScreen, GameSelectScreen, LeaderboardScreen,
     ProfileScreen, SearchScreen, ChatScreen, LaunchingScreen,
 )
-from game_launcher import discover_games, launch_game, is_running, stop_game, create_stub_games
+from game_launcher import discover_games, launch_game, is_running, stop_game
 
 
 class App:
@@ -64,12 +64,8 @@ class App:
         if not self.state.online:
             print("[arcade] Platform server unreachable — running in offline demo mode")
 
-        # Discover games folder; create stubs if empty
+        # Discover games from GAMES/ folder
         games = discover_games()
-        if not games:
-            print("[arcade] No games found — creating stub placeholders in games/")
-            create_stub_games()
-            games = discover_games()
 
         # Merge discovered local games into the catalog so the UI shows them
         self.state.local_games = games
