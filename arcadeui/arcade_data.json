@@ -1,0 +1,19 @@
+{
+  "users": {
+    "he": {
+      "password": "de",
+      "created": "2026-04-13",
+      "display": "he"
+    }
+  },
+  "sessions": [],
+  "chat": {
+    "dungeon_crawler": [
+      {
+        "username": "he",
+        "message": "hello",
+        "ts": "07:09"
+      }
+    ]
+  }
+}

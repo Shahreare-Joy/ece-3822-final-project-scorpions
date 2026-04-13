@@ -1,17 +1,26 @@
 """
-api_client.py — HTTP client for the Python Platform Server.
+api_client.py — Platform client for ECE 3822 Arcade.
+
+Priority:
+  1. Try the Python Platform Server (localhost:5000)
+  2. Fall back to local_db.py — persistent local JSON file
+
+Accounts, sessions, leaderboards, chat and search all persist to
+arcade_data.json next to this file, so they survive restarts and are
+shared across all players on the same machine.
 """
 
 import json
 import urllib.request
-import urllib.error
 import urllib.parse
-from typing import Any, Optional, List, Dict
+from typing import Any, Optional
+import local_db as db
 
-
-PLATFORM_HOST = "http://localhost:5000"
+PLATFORM_HOST    = "http://localhost:5000"
 GAME_SERVER_HOST = "localhost"
 GAME_SERVER_PORT = 9000
+
+_server_online = False
 
 
 def _get(path: str, params: dict = None) -> Any:
@@ -19,177 +28,186 @@ def _get(path: str, params: dict = None) -> Any:
     if params:
         url += "?" + urllib.parse.urlencode(params)
     try:
-        with urllib.request.urlopen(url, timeout=3) as r:
+        with urllib.request.urlopen(url, timeout=2) as r:
             return json.loads(r.read())
     except Exception:
         return None
 
 
 def _post(path: str, data: dict) -> Any:
-    url = PLATFORM_HOST + path
+    url     = PLATFORM_HOST + path
     payload = json.dumps(data).encode()
-    req = urllib.request.Request(
-        url,
-        data=payload,
+    req     = urllib.request.Request(
+        url, data=payload,
         headers={"Content-Type": "application/json"},
-        method="POST"
-    )
+        method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=3) as r:
+        with urllib.request.urlopen(req, timeout=2) as r:
             return json.loads(r.read())
     except Exception:
         return None
 
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
+# ── Connectivity ──────────────────────────────────────────────────────────────
 
 def ping() -> bool:
-    result = _get("/ping")
-    return result is not None
+    global _server_online
+    _server_online = _get("/ping") is not None
+    return _server_online
 
 
-def login(username: str, password: str) -> Optional[Dict]:
-    """Returns player dict on success, None on failure."""
-    return _post("/login", {"username": username, "password": password})
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+def login(username: str, password: str) -> Optional[dict]:
+    if _server_online:
+        return _post("/login", {"username": username, "password": password})
+    return db.login(username, password)
 
 
-def register(username: str, password: str) -> Optional[Dict]:
-    return _post("/register", {"username": username, "password": password})
+def register(username: str, password: str) -> Optional[dict]:
+    result = db.register(username, password)
+    if _server_online:
+        _post("/register", {"username": username, "password": password})
+    return result
+
+
+def user_exists(username: str) -> bool:
+    return db.user_exists(username)
 
 
 # ── Profile ───────────────────────────────────────────────────────────────────
 
-def get_profile(username: str) -> Dict:
-    result = _get(f"/profile/{username}")
-    if result:
-        return result
+def get_profile(username: str) -> dict:
+    if _server_online:
+        result = _get(f"/profile/{username}")
+        if result:
+            return result
+    return db.get_profile(username)
 
-    return {
-        "username": username,
-        "total_playtime": 3620,
-        "games_played": 47,
-        "wins": 18,
-        "win_rate": 0.383,
-        "score_history": [120, 340, 80, 500, 210, 450, 300],
-        "favorite_game": "dungeon_crawler",
-        "rank": 42,
-        "country": "US",
-    }
+
+# ── Sessions ──────────────────────────────────────────────────────────────────
+
+def add_session(username: str, game: str, score: int,
+                outcome: str = "draw", duration: int = 0):
+    db.add_session(username, game, score, outcome, duration)
+    if _server_online:
+        _post("/session", {"username": username, "game": game,
+                           "score": score, "outcome": outcome, "duration": duration})
+
+
+# ── History ───────────────────────────────────────────────────────────────────
+
+def get_history(username: str, game: str = None, sort: str = "date") -> list:
+    if _server_online:
+        params = {"sort": sort}
+        if game:
+            params["game"] = game
+        result = _get(f"/history/{username}", params)
+        if result:
+            return result
+    return db.get_history(username, game, sort)
 
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
 
-def get_leaderboard(game: str, sort: str = "score", limit: int = 20) -> List[Dict]:
-    result = _get(f"/leaderboard/{game}", {"sort": sort, "limit": limit})
-    if result:
-        return result
-
-    import random
-    names = ["Hamza", "Alex", "Jordan", "Sam", "Chris", "Morgan",
-             "Riley", "Casey", "Drew", "Taylor", "Phoenix", "Quinn"]
-
-    return [
-        {
-            "rank": i + 1,
-            "username": names[i % len(names)] + str(i),
-            "score": 9999 - i * 120 + random.randint(-30, 30),
-            "win_rate": round(0.9 - i * 0.03, 2),
-            "playtime": 7200 - i * 180
-        }
-        for i in range(min(limit, 12))
-    ]
+def get_leaderboard(game: str, sort: str = "score", limit: int = 20) -> list:
+    if _server_online:
+        result = _get(f"/leaderboard/{game}", {"sort": sort, "limit": limit})
+        if result:
+            return result
+    return db.get_leaderboard(game, sort, limit)
 
 
 def get_player_rank(game: str, username: str) -> int:
-    result = _get(f"/leaderboard/{game}/rank/{username}")
-    if result and "rank" in result:
-        return result["rank"]
-    return -1
+    if _server_online:
+        result = _get(f"/leaderboard/{game}/rank/{username}")
+        if result and "rank" in result:
+            return result["rank"]
+    return db.get_player_rank(game, username)
 
 
-def get_score_range(game: str, lo: int, hi: int) -> List[Dict]:
-    result = _get(f"/leaderboard/{game}/range", {"min": lo, "max": hi})
-    return result or []
+def get_score_range(game: str, lo: int, hi: int) -> list:
+    if _server_online:
+        result = _get(f"/leaderboard/{game}/range", {"min": lo, "max": hi})
+        if result:
+            return result
+    return db.get_score_range(game, lo, hi)
 
 
-# ── Player search ─────────────────────────────────────────────────────────────
+# ── Search ────────────────────────────────────────────────────────────────────
 
-def search_players(prefix: str) -> List[Dict]:
-    if len(prefix) < 1:
-        return []
-
-    result = _get("/search", {"prefix": prefix})
-    if result:
-        return result
-
-    sample = ["Hamza", "Hannah", "Harrison", "Harold", "Harper",
-              "Harry", "Harvey", "Hassan", "Hayden", "Heath"]
-
-    matches = [n for n in sample if n.lower().startswith(prefix.lower())]
-    return [{"username": n, "score": 1000 - i * 50} for i, n in enumerate(matches)]
-
-
-# ── Match history ─────────────────────────────────────────────────────────────
-
-def get_history(username: str, game: str = None, sort: str = "date") -> List[Dict]:
-    params = {"sort": sort}
-    if game:
-        params["game"] = game
-
-    result = _get(f"/history/{username}", params)
-    if result:
-        return result
-
-    import random, datetime
-    games = ["dungeon_crawler", "space_shooter", "platform_runner", "tower_defense"]
-
-    history = []
-    for i in range(15):
-        d = datetime.date.today() - datetime.timedelta(days=i * 2 + random.randint(0, 3))
-        history.append({
-            "game": random.choice(games),
-            "date": str(d),
-            "score": random.randint(50, 800),
-            "duration_sec": random.randint(60, 900),
-            "outcome": random.choice(["win", "loss", "draw"]),
-        })
-
-    return history
+def search_players(prefix: str) -> list:
+    if _server_online:
+        result = _get("/search", {"prefix": prefix})
+        if result:
+            return result
+    return db.search_players(prefix)
 
 
 # ── Game catalog ──────────────────────────────────────────────────────────────
 
-def get_catalog(sort: str = "most_played") -> List[Dict]:
-    result = _get("/games", {"sort": sort})
-    if result:
-        return result
-
-    games = [
-        ("dungeon_crawler", "Dungeon Crawler", True, "RPG action dungeon game", 4200, 8.4),
-        ("space_shooter", "Space Shooter", True, "Side-scroll shoot-em-up", 3800, 7.9),
+def get_catalog(sort: str = "most_played") -> list:
+    if _server_online:
+        result = _get("/games", {"sort": sort})
+        if result:
+            return result
+    # game IDs must match folder names in games/ (lowercased)
+    known = [
+        ("excape_the_city",   "Escape the City",     True,  "RPG action dungeon game"),
+        ("snakes",            "Snake",                True,  "Classic snake game"),
+        ("pong",              "Pong",                 True,  "2-player paddle battle"),
+        ("rock_paper_scisor", "Rock Paper Scissors",  True,  "Quick RPS vs CPU"),
+        ("flappy_bird",       "Flappy Bird",          True,  "Tap to flap through pipes"),
+        ("breakout",          "Breakout",             True,  "Smash all the bricks"),
+        ("joy_game",          "Joy_Game",             False, "Coming soon — Joy"),
+        ("kevin_game",        "Kevin_Game",           False, "Coming soon — Kevin"),
+        ("mykai_game",        "Mykai_Game",           False, "Coming soon — Mykai"),
     ]
+    # Also pull in any discovered local games not in the known list
+    try:
+        import game_launcher as _gl
+        for gid, meta in _gl.discover_games().items():
+            if not any(g[0] == gid for g in known):
+                known.append((gid, meta["name"], True, meta.get("description","")))
+    except Exception:
+        pass
+    all_sessions = db._load()["sessions"]
+    counts = {}
+    avgs   = {}
+    for s in all_sessions:
+        g = s["game"]
+        counts[g] = counts.get(g, 0) + 1
+        avgs.setdefault(g, []).append(s["score"])
 
-    return [
-        {"id": g[0], "name": g[1], "playable": g[2], "desc": g[3],
-         "sessions": g[4], "avg_score": g[5]}
-        for g in games
-    ]
+    catalog = []
+    for gid, name, playable, desc in known:
+        sc = avgs.get(gid, [])
+        catalog.append({
+            "id":        gid,
+            "name":      name,
+            "playable":  playable,
+            "desc":      desc,
+            "sessions":  counts.get(gid, 0),
+            "avg_score": round(sum(sc)/len(sc), 1) if sc else 0.0,
+        })
+
+    catalog.sort(key=lambda g: g["avg_score" if sort == "avg_score" else "sessions"],
+                 reverse=True)
+    return catalog
 
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
-def get_chat(game: str, limit: int = 50) -> List[Dict]:
-    result = _get(f"/chat/{game}", {"limit": limit})
-    if result:
-        return result
-
-    return [
-        {"username": "Alex", "message": "GG everyone!", "ts": "14:22"},
-        {"username": "Jordan", "message": "Anyone want to party up?", "ts": "14:21"},
-        {"username": "Sam", "message": "That boss was tough", "ts": "14:20"},
-    ]
+def get_chat(game: str, limit: int = 50) -> list:
+    if _server_online:
+        result = _get(f"/chat/{game}", {"limit": limit})
+        if result:
+            return result
+    return db.get_chat(game, limit)
 
 
 def send_chat(game: str, username: str, message: str) -> bool:
-    result = _post(f"/chat/{game}", {"username": username, "message": message})
-    return result is not None
+    db.send_chat(game, username, message)
+    if _server_online:
+        _post(f"/chat/{game}", {"username": username, "message": message})
+    return True

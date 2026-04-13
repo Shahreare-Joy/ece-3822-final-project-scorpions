@@ -46,7 +46,17 @@ from typing import Optional
 # arcadeui/ is one level below the repo root, so GAMES/ is at ../GAMES/
 _ARCADE_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT   = os.path.dirname(_ARCADE_DIR)
-GAMES_DIR    = os.path.join(_REPO_ROOT, "GAMES")
+
+# Try both 'games' and 'GAMES' — handle case differences on the server
+def _find_games_dir():
+    for name in ("games", "GAMES", "Games"):
+        p = os.path.join(_REPO_ROOT, name)
+        if os.path.isdir(p):
+            return p
+    # fallback
+    return os.path.join(_REPO_ROOT, "games")
+
+GAMES_DIR = _find_games_dir()
 
 # Subdirectory within each game folder that contains main.py
 # Matches your structure: GAMES/<GameName>/code/game/main.py
