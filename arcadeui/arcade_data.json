@@ -4,6 +4,11 @@
       "password": "de",
       "created": "2026-04-13",
       "display": "he"
+    },
+    "hamza": {
+      "password": "hamza",
+      "created": "2026-04-13",
+      "display": "hamza"
     }
   },
   "sessions": [],
