@@ -16,11 +16,14 @@ class AccountService:
         self._account_index = None  # TODO: replace with ChainedHashTable.
 
     def signup(self, username: str, password: str, display_name: str) -> bool:
+        # TODO(RESILIENCE): Validate required fields, duplicate usernames, and bad input.
+        # TODO(PERSISTENCE): Save new accounts after successful insertion.
         # TODO(HASH TABLE): Insert account into custom hash table.
         _ = (username, password, display_name)
         raise NotImplementedError("Team must implement signup with custom hash table.")
 
     def login(self, username: str, password: str) -> bool:
+        # TODO(RESILIENCE): Return a safe error for missing or malformed credentials.
         # TODO(HASH TABLE): Lookup username in custom hash table, validate password.
         _ = (username, password)
         raise NotImplementedError("Team must implement login with account index.")

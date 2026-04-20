@@ -1,1 +1,1 @@
-"""Game 1 package: working Snake example for launch-flow testing."""
+"""Game 1 package: placeholder reserved for a final team game."""

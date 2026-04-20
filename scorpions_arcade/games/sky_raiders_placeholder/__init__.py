@@ -1,2 +1,0 @@
-"""Sky Raiders placeholder package."""
-

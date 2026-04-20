@@ -1,22 +1,15 @@
-from __future__ import annotations
+"""Client package entry point for Scorpions Arcade.
 
-"""Client entry point.
+The repository-level main.py imports this file, so the launcher still starts
+with `python main.py`. The active Pygame UI now lives in this `client/` package:
 
-The polished launcher currently lives in `scorpions_arcade/`. This wrapper keeps
-the new required project structure while preserving the working UI.
-
-TODO(CLIENT REFACTOR): Gradually migrate reusable client code from
-`scorpions_arcade/` into this `client/` package if the team wants the final
-submission to use only the new top-level layout.
+- `client/core/` owns the app loop, routing, state, layout, and theme.
+- `client/screens/` owns one screen per file.
+- `client/components/` owns reusable drawing/widgets.
+- `client/services/` owns UI-facing feature adapters and launcher hooks.
+- `client/data/` owns temporary UI mock data until platform_server is wired in.
 """
 
-from scorpions_arcade.main import main as run_existing_launcher
+from client.core.app import ArcadeApp, main
 
-
-def main() -> None:
-    """Run the Pygame arcade launcher."""
-    run_existing_launcher()
-
-
-if __name__ == "__main__":
-    main()
+__all__ = ["ArcadeApp", "main"]

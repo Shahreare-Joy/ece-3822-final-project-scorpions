@@ -1,14 +1,31 @@
 # Synthetic Dataset
 
-Placeholder files for the final project dataset.
+This folder stores the generated dataset that must be committed and submitted
+with the project.
 
-Expected final files:
+Generate or refresh the files from the repo root:
 
-- `players.csv`
-- `games.csv`
-- `sessions.csv`
-- `leaderboards.csv`
-- `chat_messages.json`
+```powershell
+python data/generate_dataset.py
+```
 
-TODO(DATASET): Replace placeholder rows with the final synthetic dataset and
-document cleaning rules in DESIGN.md or IMPLEMENTATION_GUIDE.md.
+Required generated files:
+
+- `players.json`: player/account/profile-like records
+- `sessions.json`: historical game session records
+- `chat_messages.json`: synthetic per-session chat messages
+- `game_catalog.json`: game catalog metadata
+- `manifest.json`: counts, seed, and generation timestamp
+
+Target sizes:
+
+- 10,000+ players
+- 100,000+ sessions
+- 50,000+ chat messages
+- 100+ catalog games
+
+The current CSV files are legacy placeholders. The JSON files are the dataset
+format expected by `platform_server/data_ingest.py`.
+
+TODO(DATASET): If the schema changes, update `data/generate_dataset.py`,
+`platform_server/data_ingest.py`, and the documentation together.
