@@ -1,3 +1,8 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
+from array import ArrayList
+
 """
 sparse_matrix.py - Sparse Matrix implementation
 
@@ -18,8 +23,8 @@ Choose one of three backing representations:
 
 All three options must satisfy the same interface.
 
-Author: [Your Name]
-Date:   [Date]
+Author: [Hamza Mughal]
+Date:   [4/10/2026]
 Lab:    Lab 6 - Sparse World Map
 """
 
@@ -56,36 +61,88 @@ class SparseMatrixBase:
 
 
 # =============================================================================
-# Your implementation goes here.
+# Your implementation goes here. OPTION B
 # =============================================================================
 
 class SparseMatrix(SparseMatrixBase):
+    """
+    COO sparse matrix: stores only non-default entries as
+    (row, col, value) triples in an ArrayList.
+    """
 
     def __init__(self, rows=None, cols=None, default=0):
         super().__init__(rows, cols, default)
-        # TODO: initialize your backing data structure
-        raise NotImplementedError
+        # ArrayList of (row, col, value) tuples
+        self._entries = ArrayList()
+
+    def _find(self, row, col):
+        """Return index of (row, col) entry in _entries, or -1 if not found."""
+        for i in range(len(self._entries)):
+            r, c, _ = self._entries[i]
+            if r == row and c == col:
+                return i
+        return -1
 
     def set(self, row, col, value):
-        # TODO
-        raise NotImplementedError
+        """
+        Store value at (row, col).
+        If value == default, remove the entry to keep the matrix sparse.
+        """
+        idx = self._find(row, col)
+        if value == self.default:
+            # Remove entry if it exists
+            if idx != -1:
+                self._entries.pop(idx)
+        else:
+            if idx != -1:
+                # Update existing entry
+                self._entries[idx] = (row, col, value)
+            else:
+                # Add new entry
+                self._entries.append((row, col, value))
 
     def get(self, row, col):
-        # TODO
-        raise NotImplementedError
+        """Return stored value at (row, col), or default if not stored."""
+        idx = self._find(row, col)
+        if idx == -1:
+            return self.default
+        _, _, value = self._entries[idx]
+        return value
 
     def items(self):
-        # TODO
-        raise NotImplementedError
+        """Yield ((row, col), value) tuples for all stored entries."""
+        for i in range(len(self._entries)):
+            r, c, v = self._entries[i]
+            yield (r, c), v
 
     def __len__(self):
-        # TODO
-        raise NotImplementedError
+        """Return number of stored (non-default) entries."""
+        return len(self._entries)
 
     def multiply(self, other):
-        # TODO
-        raise NotImplementedError
+        """
+        Return a new SparseMatrix = self * other.
+        Standard matrix multiplication: result[i][j] = sum(self[i][k] * other[k][j])
+        Only iterates over non-default entries for efficiency.
+        """
+        result = SparseMatrix(
+            rows=self.rows,
+            cols=other.cols,
+            default=self.default
+        )
+
+        # For each non-zero in self, combine with non-zeros in other
+        for i in range(len(self._entries)):
+            r, k, v1 = self._entries[i]
+            for j in range(len(other._entries)):
+                kr, c, v2 = other._entries[j]
+                if k == kr:
+                    current = result.get(r, c)
+                    result.set(r, c, current + v1 * v2)
+
+        return result
 
     def __str__(self):
-        # TODO
-        raise NotImplementedError
+        """Human-readable summary of the sparse matrix."""
+        return (f"SparseMatrix(rows={self.rows}, cols={self.cols}, "
+                f"default={self.default}, nnz={len(self)})")

@@ -156,32 +156,86 @@ class QuestItem(Item):
         print(f"{self.name} is a quest item")
         return False
 
+# =============================
+# PART 4: INVENTORY ITEMS
+# =============================
 
-# =============
-# EXAMPLE ITEMS
-# =============
-
-def create_example_items():
-    """
-    Return a list of items for the player's starting inventory.
-
-    Copy the items you created in Lab 3 here, or add new ones.
-    Use Item, Weapon, Armor, Consumable, and QuestItem to create items.
-
-    Returns:
-        list: List of Item objects
-    """
+def create_inventory_items():
+    """Create weapons, armor, and consumables with sprites from Part 4"""
     items = []
 
-    # TODO: Copy your items from Lab 3 (or create new ones).
-    #
-    # Examples:
-    #   items.append(Weapon("Iron Sword", "A basic sword.", "../../graphics/items/sword.png", attack_bonus=10, value=50))
-    #   items.append(Consumable("Health Potion", "Restores 50 HP.", "../../graphics/items/potion.png",
-    #                           effect_type="heal", effect_amount=50, value=25, max_stack=99))
-    #   items.append(Armor("Leather Armor", "Light armor.", "../../graphics/items/armor.png", defense_bonus=5, value=80))
+    # Weapons
+    items.append(Weapon(
+        name="Reinforced Chassis",
+        description="Strong chassis that increases damage when ramming police cars.",
+        image_path="../graphics/items/reinforced_chassis.png",
+        attack_bonus=6,
+        value=150
+    ))
 
-    print(f"Created {len(items)} example items")
+    items.append(Weapon(
+        name="Nitro Ram",
+        description="Boosts forward impact damage while nitro is active.",
+        image_path="../graphics/items/nitro_ram.png",
+        attack_bonus=8,
+        value=200
+    ))
+
+    items.append(Weapon(
+        name="Spike Strip",
+        description="Drops spikes behind the car to damage police vehicles.",
+        image_path="../graphics/items/spike_strip.png",
+        attack_bonus=5,
+        value=120
+    ))
+
+    items.append(Weapon(
+        name="EMP Pulse",
+        description="Temporarily disables nearby police vehicles.",
+        image_path="../graphics/items/emp_pulse.png",
+        attack_bonus=7,
+        value=180
+    ))
+
+    # Armor
+    items.append(Armor(
+        name="Roll Cage",
+        description="Protects car from heavy crash damage",
+        image_path="../graphics/items/roll_cage.png",
+        defense_bonus=6,
+        value=150
+    ))
+
+    items.append(Armor(
+        name="Armored Doors",
+        description="Reinforced doors that reduce side impact damage",
+        image_path="../graphics/items/armoured_doors.png",
+        defense_bonus=8,
+        value=200
+    ))
+
+    # Consumables
+    items.append(Consumable(
+        name="Repair Kit",
+        description="Repairs minor car damages during a chase",
+        image_path="../graphics/items/repair_kit.png",
+        effect_type="heal",
+        effect_amount=35,
+        value=50,
+        max_stack=5
+    ))
+
+    items.append(Consumable(
+        name="Nitro Canister",
+        description="Temporarily increases speed",
+        image_path="../graphics/items/nitro_canister.png",
+        effect_type="speed",
+        effect_amount=5,
+        value=75,
+        max_stack=3
+    ))
+
+    print(f"Created {len(items)} inventory items")
     return items
 
 
@@ -201,3 +255,6 @@ if __name__ == "__main__":
     print(f"Max stack: {potion.max_stack}\n")
     
     print("Item tests completed!")
+
+def create_example_items():
+    return create_inventory_items()
