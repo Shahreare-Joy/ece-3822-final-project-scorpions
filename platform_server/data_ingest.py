@@ -32,11 +32,54 @@ DATASET_FILES = {
     "game_catalog": "game_catalog.json",
 }
 
+# Canonical field names match Task 5 dataset spec.
+# sent_at/text/currently_playing are kept in the JSON for backward compat
+# but timestamp/message/players_now are the required canonical names.
 REQUIRED_FIELDS = {
-    "players": {"player_id", "username", "display_name", "created_at", "region", "favorite_genre"},
-    "sessions": {"session_id", "player_id", "username", "game_id", "started_at", "duration_seconds", "score", "outcome"},
-    "chat_messages": {"message_id", "session_id", "player_id", "game_id", "sent_at", "text"},
-    "game_catalog": {"game_id", "title", "creator", "genre", "playable", "total_plays", "currently_playing"},
+    "players": {
+        "player_id", "username", "display_name", "country", "created_at",
+        "favorite_genre", "level", "total_score", "games_played", "wins", "losses",
+    },
+    "sessions": {
+        "session_id", "player_id", "game_id", "started_at", "ended_at",
+        "duration_seconds", "score", "outcome",
+    },
+    "chat_messages": {
+        "message_id", "session_id", "player_id", "timestamp", "message",
+    },
+    "game_catalog": {
+        "game_id", "title", "genre", "creator", "description", "playable",
+        "total_plays", "players_now", "created_at", "last_updated",
+    },
+}
+
+# Type expectations for basic validation: field -> expected Python type
+FIELD_TYPES: dict[str, dict[str, type]] = {
+    "players": {
+        "total_score": int,
+        "games_played": int,
+        "wins": int,
+        "losses": int,
+        "level": int,
+    },
+    "sessions": {
+        "score": int,
+        "duration_seconds": int,
+    },
+    "chat_messages": {},
+    "game_catalog": {
+        "playable": bool,
+        "total_plays": int,
+        "players_now": int,
+    },
+}
+
+# ID field for each dataset — used for duplicate detection
+ID_FIELDS = {
+    "players": "player_id",
+    "sessions": "session_id",
+    "chat_messages": "message_id",
+    "game_catalog": "game_id",
 }
 
 EXPECTED_MINIMUM_COUNTS = {
@@ -72,7 +115,6 @@ class DataIngestService:
         Returns an empty list if the file is missing so the server scaffold can
         still start before the team generates the dataset.
         """
-
         file_name = DATASET_FILES[dataset_name]
         path = self.dataset_root / file_name
         if not path.exists():
@@ -84,66 +126,39 @@ class DataIngestService:
         return [row for row in data if isinstance(row, dict)]
 
     def validate_records(self, dataset_name: str, rows: list[dict[str, Any]]) -> list[str]:
-        """Return validation errors for missing fields and undersized datasets."""
-
+        """Return validation errors for missing fields, wrong types, and undersized datasets."""
         errors: list[str] = []
         required = REQUIRED_FIELDS[dataset_name]
+        type_checks = FIELD_TYPES.get(dataset_name, {})
         minimum = EXPECTED_MINIMUM_COUNTS[dataset_name]
+
+        # Count check
         if rows and len(rows) < minimum:
-            errors.append(f"{dataset_name} has {len(rows)} records; expected at least {minimum}.")
+            errors.append(
+                f"{dataset_name} has {len(rows)} records; expected at least {minimum}."
+            )
+
+        # Field presence and type checks — sample first 100 records only
         for index, row in enumerate(rows[:100]):
             missing = required - set(row.keys())
             if missing:
-                errors.append(f"{dataset_name}[{index}] missing fields: {sorted(missing)}")
+                errors.append(
+                    f"{dataset_name}[{index}] missing fields: {sorted(missing)}"
+                )
+            # Basic type validation
+            for field, expected_type in type_checks.items():
+                if field in row and not isinstance(row[field], expected_type):
+                    errors.append(
+                        f"{dataset_name}[{index}] field '{field}' expected "
+                        f"{expected_type.__name__}, got {type(row[field]).__name__}"
+                    )
+
         return errors
 
-    def load_players(self) -> list[dict[str, Any]]:
-        rows = self.load_json_file("players")
-        # TODO(CLEANING): Normalize usernames and detect duplicates before indexing.
-        return rows
-
-    def load_games(self) -> list[dict[str, Any]]:
-        rows = self.load_json_file("game_catalog")
-        # TODO(CATALOG): Load these into the final game registry/catalog indexes.
-        return rows
-
-    def load_sessions(self) -> list[dict[str, Any]]:
-        rows = self.load_json_file("sessions")
-        # TODO(HISTORY): Build player/game/date/outcome indexes from these rows.
-        return rows
-
-    def load_leaderboards(self) -> list[dict[str, Any]]:
-        # TODO(LEADERBOARD): Derive leaderboard entries from sessions or add a
-        # committed leaderboard file if the final report needs one.
-        return []
-
-    def load_chat_messages(self) -> list[dict[str, Any]]:
-        rows = self.load_json_file("chat_messages")
-        # TODO(CHAT): Optionally restore recent messages into circular buffers.
-        return rows
-
-    def validate_all(self) -> list[str]:
-        """Validate all committed dataset files."""
-
+    def find_duplicates(self, dataset_name: str, rows: list[dict[str, Any]]) -> list[str]:
+        """Return a list of duplicate ID warnings for the given dataset."""
         errors: list[str] = []
-        for dataset_name in DATASET_FILES:
-            rows = self.load_json_file(dataset_name)
-            if not rows:
-                errors.append(f"{dataset_name} is missing or empty. Run data/generate_dataset.py.")
-                continue
-            errors.extend(self.validate_records(dataset_name, rows))
-        return errors
+        id_field = ID_FIELDS.get(dataset_name)
+        if not id_field:
+            return errors
 
-    def load_all(self) -> dict[str, list[dict[str, Any]]]:
-        """Load all datasets for platform-server startup.
-
-        TODO(INTEGRATION): After cleaning, return model objects or index-ready
-        records, then hand them to services in platform_server/server.py.
-        """
-
-        return {
-            "players": self.load_players(),
-            "sessions": self.load_sessions(),
-            "chat_messages": self.load_chat_messages(),
-            "game_catalog": self.load_games(),
-        }
