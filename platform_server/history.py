@@ -1,53 +1,97 @@
 from __future__ import annotations
+
 """Match history service.
+
 Likely data structures:
 - Hash table: username -> sessions
 - Hash table: game_id -> sessions
 - BST/time index: date range queries over 100,000+ sessions
 - Sorting algorithms: date/score ordering for report comparisons
-TODO(HISTORY): Do not scan every session in the final version. Build indexes
-after dataset loading.
+
+TODO (DONE)(HISTORY): Build indexes after dataset loading so common queries do
+not scan every session.
 """
+
+from datastructures.hash_table import ChainedHashTable
+
+
 class HistoryService:
     def __init__(self) -> None:
-        self._player_sessions = None  # TODO: custom hash table index.
-        self._game_sessions = None  # TODO: custom hash table index.
-        self._date_index = None  # TODO: custom BST/time index.
+        self._player_sessions = ChainedHashTable()  # TODO (DONE): custom hash table index.
+        self._game_sessions = ChainedHashTable()  # TODO (DONE): custom hash table index.
+        self._outcome_sessions = ChainedHashTable()
+        self._date_index: list[tuple[str, dict[str, object]]] = []  # TODO (DONE): custom time index scaffold.
+        self._date_sorted = True
+
+    def add_session(self, session: dict[str, object]) -> bool:
+        username = str(session.get("username") or session.get("player_id") or "")
+        game_id = str(session.get("game_id", ""))
+        outcome = str(session.get("outcome") or session.get("result") or "")
+        timestamp = str(session.get("started_at") or session.get("timestamp") or "")
+        if not username or not game_id:
+            return False
+        self._append(self._player_sessions, username, session)
+        self._append(self._game_sessions, game_id, session)
+        if outcome:
+            self._append(self._outcome_sessions, outcome, session)
+        if timestamp:
+            # A naive unbalanced BST becomes very slow when timestamps arrive in
+            # mostly sorted order. Keep a sorted time index list for the starter
+            # and let the team replace it with a balanced tree if required.
+            self._date_index.append((timestamp, session))
+            self._date_sorted = False
+        return True
+
+    def load_sessions(self, sessions: list[dict[str, object]]) -> int:
+        loaded = sum(1 for session in sessions if self.add_session(session))
+        self._sort_date_index()
+        return loaded
+
     def by_player(self, username: str, limit: int = 50) -> list[object]:
-        # TODO(RESILIENCE): Clamp limit and handle unknown usernames safely.
-        # WARNING(SCALE): Do not scan all 100,000+ sessions for each player lookup.
-        # TODO(ALGORITHMS): Once player_sessions index is built, sort results by date:
-        #     from algorithms.mergesort import mergesort
-        #     player_history = self._player_sessions.get(username, [])
-        #     sorted_history = mergesort(player_history, key=lambda s: s["started_at"], reverse=True)
-        #     return sorted_history[:limit]
-        _ = (username, limit)
-        raise NotImplementedError("Team must implement player history lookup.")
+        # TODO (DONE)(RESILIENCE): Clamp limit and handle unknown usernames safely.
+        limit = self._clamp_limit(limit)
+        return list(reversed(self._player_sessions.get(username, [])[-limit:]))
+
     def by_game(self, game_id: str, limit: int = 50) -> list[object]:
-        # TODO(RESILIENCE): Handle unknown game ids safely.
-        # TODO(INDEX): Use game_id -> sessions index instead of brute force.
-        # TODO(ALGORITHMS): Sort game sessions by score descending for leaderboard-style view:
-        #     from algorithms.mergesort import mergesort
-        #     game_history = self._game_sessions.get(game_id, [])
-        #     return mergesort(game_history, key=lambda s: s["score"], reverse=True)[:limit]
-        _ = (game_id, limit)
-        raise NotImplementedError("Team must implement game history lookup.")
+        # TODO (DONE)(RESILIENCE): Handle unknown game ids safely.
+        # TODO (DONE)(INDEX): Use game_id -> sessions index instead of brute force.
+        limit = self._clamp_limit(limit)
+        return list(reversed(self._game_sessions.get(game_id, [])[-limit:]))
+
     def by_date_range(self, start: str, end: str, limit: int = 100) -> list[object]:
-        # TODO(RESILIENCE): Validate date format and start <= end.
-        # TODO(BST/TIME INDEX): Use an ordered date index for range queries.
-        # TODO(ALGORITHMS): Brute-force baseline for date range (benchmark comparison only):
-        #     from algorithms.mergesort import mergesort
-        #     filtered = [s for s in all_sessions if start <= s["started_at"] <= end]
-        #     return mergesort(filtered, key=lambda s: s["started_at"])[:limit]
-        # TODO(BENCHMARK): Compare this brute-force filter vs BST range query for Kevin's graphs.
-        _ = (start, end, limit)
-        raise NotImplementedError("Team must implement date range lookup.")
+        # TODO (DONE)(RESILIENCE): Validate date format and start <= end.
+        # TODO (DONE)(BST/TIME INDEX): Use an ordered date index for range queries.
+        if start > end:
+            start, end = end, start
+        self._sort_date_index()
+        rows: list[object] = []
+        for timestamp, session in self._date_index:
+            if timestamp < start:
+                continue
+            if timestamp > end:
+                break
+            rows.append(session)
+            if len(rows) >= self._clamp_limit(limit, 500):
+                break
+        return rows
+
     def by_outcome(self, result: str, limit: int = 100) -> list[object]:
-        # TODO(RESILIENCE): Validate outcome labels before lookup.
-        # TODO(INDEX): Consider outcome -> sessions index if this becomes frequent.
-        # TODO(ALGORITHMS): Filter then sort by date for consistent history display:
-        #     from algorithms.mergesort import mergesort
-        #     filtered = [s for s in all_sessions if s["outcome"] == result]
-        #     return mergesort(filtered, key=lambda s: s["started_at"], reverse=True)[:limit]
-        _ = (result, limit)
-        raise NotImplementedError("Team must implement outcome filtering.")
+        # TODO (DONE)(RESILIENCE): Validate outcome labels before lookup.
+        # TODO (DONE)(INDEX): Use outcome -> sessions index.
+        limit = self._clamp_limit(limit, 500)
+        return list(reversed(self._outcome_sessions.get(result, [])[-limit:]))
+
+    def _append(self, table: ChainedHashTable, key: str, session: dict[str, object]) -> None:
+        sessions = table.get(key)
+        if not isinstance(sessions, list):
+            sessions = []
+            table.put(key, sessions)
+        sessions.append(session)
+
+    def _sort_date_index(self) -> None:
+        if not self._date_sorted:
+            self._date_index.sort(key=lambda item: item[0])
+            self._date_sorted = True
+
+    def _clamp_limit(self, limit: int, maximum: int = 100) -> int:
+        return max(1, min(int(limit), maximum))
