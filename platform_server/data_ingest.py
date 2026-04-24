@@ -162,3 +162,101 @@ class DataIngestService:
         if not id_field:
             return errors
 
+        seen: set[str] = set()
+        for index, row in enumerate(rows):
+            record_id = row.get(id_field)
+            if record_id is None:
+                errors.append(f"{dataset_name}[{index}] missing {id_field}")
+            elif record_id in seen:
+                errors.append(f"{dataset_name}: duplicate {id_field} '{record_id}' at index {index}")
+            else:
+                seen.add(record_id)
+
+        return errors
+
+    def load_players(self) -> list[dict[str, Any]]:
+        rows = self.load_json_file("players")
+        # TODO(CLEANING): Normalize usernames and detect duplicates before indexing.
+
+        # Duplicate username detection — report but do not drop records yet.
+        # TODO(DATA STRUCTURES): After deduplication, load into:
+        #   - hash table keyed by player_id  for O(1) profile lookup
+        #   - hash table keyed by username   for O(1) login/search lookup
+        #   - search index (BST or Trie)     for prefix autocomplete
+        usernames_seen: set[str] = set()
+        for i, row in enumerate(rows):
+            uname = row.get("username")
+            if uname in usernames_seen:
+                print(f"[data_ingest] WARNING: duplicate username '{uname}' at players[{i}]")
+            else:
+                usernames_seen.add(uname)
+
+        return rows
+
+    def load_games(self) -> list[dict[str, Any]]:
+        rows = self.load_json_file("game_catalog")
+        # TODO(CATALOG): Load these into the final game registry/catalog indexes.
+
+        # TODO(DATA STRUCTURES): After loading, pass rows to:
+        #   - hash table keyed by game_id    for O(1) catalog lookup
+        #   - genre index                    for filtered browsing
+        #   - recommendation graph           for related-games feature
+        #   - mergesort / heapsort           for popularity/recency ordering
+        return rows
+
+    def load_sessions(self) -> list[dict[str, Any]]:
+        rows = self.load_json_file("sessions")
+        # TODO(HISTORY): Build player/game/date/outcome indexes from these rows.
+
+        # TODO(DATA STRUCTURES): After loading, pass rows to:
+        #   - hash table: player_id  -> list[session]  for history lookup
+        #   - hash table: game_id    -> list[session]  for game history
+        #   - BST / time index: started_at             for date range queries
+        #   - mergesort: sort sessions by started_at or score for history display
+        #   - heapsort / heap: derive leaderboard top-N per game
+        return rows
+
+    def load_leaderboards(self) -> list[dict[str, Any]]:
+        # TODO(LEADERBOARD): Derive leaderboard entries from sessions or add a
+        # committed leaderboard file if the final report needs one.
+
+        # TODO(DATA STRUCTURES): Once sessions are loaded, pass to:
+        #   - custom Heap keyed by score per game_id   for top_n() queries
+        #   - BST keyed by score per game_id           for score_range() queries
+        #   - heapsort from algorithms/heapsort.py     for full leaderboard sort
+        return []
+
+    def load_chat_messages(self) -> list[dict[str, Any]]:
+        rows = self.load_json_file("chat_messages")
+        # TODO(CHAT): Optionally restore recent messages into circular buffers.
+
+        # TODO(DATA STRUCTURES): After loading, pass rows to:
+        #   - circular buffer keyed by session_id      for recent chat display
+        return rows
+
+    def validate_all(self) -> list[str]:
+        """Validate all committed dataset files — field presence, types, and duplicates."""
+        errors: list[str] = []
+        for dataset_name in DATASET_FILES:
+            rows = self.load_json_file(dataset_name)
+            if not rows:
+                errors.append(
+                    f"{dataset_name} is missing or empty. Run data/generate_dataset.py."
+                )
+                continue
+            errors.extend(self.validate_records(dataset_name, rows))
+            errors.extend(self.find_duplicates(dataset_name, rows))
+        return errors
+
+    def load_all(self) -> dict[str, list[dict[str, Any]]]:
+        """Load all datasets for platform-server startup.
+
+        TODO(INTEGRATION): After cleaning, return model objects or index-ready
+        records, then hand them to services in platform_server/server.py.
+        """
+        return {
+            "players":      self.load_players(),
+            "sessions":     self.load_sessions(),
+            "chat_messages": self.load_chat_messages(),
+            "game_catalog": self.load_games(),
+        }
