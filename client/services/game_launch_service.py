@@ -57,9 +57,9 @@ class GameLaunchService:
     def __init__(self, connection: ServerConnectionInfo | None = None) -> None:
         self.connection = connection or ServerConnectionInfo()
 
-    def launch(self, player: Player | None, game: Game) -> LaunchResult:
+    def launch(self, player: Player | None, game: Game, session_id: str | None = None) -> LaunchResult:
         username = player.username if player else "guest"
-        request = LaunchRequest(game.game_id, username)
+        request = LaunchRequest(game.game_id, username, session_id=session_id or f"local-{game.game_id}")
         # TODO(C++ LAUNCH): Replace the local LaunchRequest path with a call to
         # CppServerClient.create_or_join_session(ServerSessionRequest(...)).
         _future_server_request = ServerSessionRequest(username=username, game_id=game.game_id, requested_mode=request.requested_mode)
@@ -129,6 +129,14 @@ class GameLaunchService:
         env["SCORPIONS_GAME_ID"] = target.game_id
         env["SCORPIONS_SESSION_ID"] = request.session_id
         env["SCORPIONS_PLAYER"] = str(player_info.get("username", "guest"))
+        env["SCORPIONS_DISPLAY_NAME"] = str(player_info.get("display_name", "Guest"))
+        env["SCORPIONS_CHAT_ENABLED"] = "1"
+        env["SCORPIONS_CHAT_TITLE"] = f"{game.title} Chat"
+        project_root = str(Path(__file__).resolve().parents[2])
+        chat_dir = Path(project_root) / "data" / "runtime_chat"
+        chat_dir.mkdir(parents=True, exist_ok=True)
+        env["SCORPIONS_CHAT_DIR"] = str(chat_dir)
+        env["PYTHONPATH"] = project_root + os.pathsep + env.get("PYTHONPATH", "")
         # Future subprocess games can write JSON here before exiting:
         # {
         #   "score": 4200,

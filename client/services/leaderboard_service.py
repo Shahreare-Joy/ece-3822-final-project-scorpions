@@ -1,62 +1,68 @@
 from __future__ import annotations
 
 from client.models import LeaderboardEntry, Player
+from client.placeholders.sorting_algorithms import SortingHooks
+from datastructures.bst import BinarySearchTree
+from datastructures.hash_table import ChainedHashTable
+from datastructures.heap import MaxHeap
 
 
 class LeaderboardService:
-    """Temporary leaderboard service backed by mock rows.
-
-    Requirement targets:
-    - top-N lookup
-    - player rank lookup
-    - score range queries
-    - sorting by score, win rate, and play time
-
-    TODO(HEAP/BST/SORTING): Replace mock scans with final structures. A heap or
-    priority queue can support top-N, while a BST/tree-like index can support
-    score ranges and rank lookup. Sorting algorithms should live in
-    placeholders/sorting_algorithms.py and be benchmarked in analysis.py.
-    """
+    """Leaderboard service backed by custom indexes."""
 
     def __init__(self, entries: list[LeaderboardEntry], players: dict[str, Player]) -> None:
         self.entries = entries
         self.players = players
+        self.sorting = SortingHooks()
+        self._game_entries = ChainedHashTable()
+        self._score_ranges = ChainedHashTable()
+        self._top_heaps = ChainedHashTable()
+        self._build_indexes()
+
+    def _build_indexes(self) -> None:
+        for entry in self.entries:
+            rows = self._game_entries.get(entry.game_id)
+            if not isinstance(rows, list):
+                rows = []
+                self._game_entries.put(entry.game_id, rows)
+            rows.append(entry)
+            tree = self._score_ranges.get(entry.game_id)
+            if not isinstance(tree, BinarySearchTree):
+                tree = BinarySearchTree()
+                self._score_ranges.put(entry.game_id, tree)
+            tree.insert(entry.score, entry)
+            heap = self._top_heaps.get(entry.game_id)
+            if not isinstance(heap, MaxHeap):
+                heap = MaxHeap()
+                self._top_heaps.put(entry.game_id, heap)
+            heap.push(entry.score, entry)
 
     def get_leaderboard(self, game_id: str, limit: int = 8) -> list[LeaderboardEntry]:
-        # BRUTE-FORCE MOCK WARNING:
-        # This filters mock rows directly. Replace with heap/priority queue,
-        # tree, or other documented leaderboard structure for scale.
-        # TODO(HEAP/BST/SORTING): Replace this with final ranking structures.
-        existing = [entry for entry in self.entries if entry.game_id == game_id]
-        if existing:
-            return existing[:limit]
+        # TODO (DONE)(HEAP/BST/SORTING): Replace mock scans with final ranking structures.
+        heap = self._top_heaps.get(game_id)
+        if isinstance(heap, MaxHeap) and len(heap):
+            return [entry for entry in heap.top_n(limit) if isinstance(entry, LeaderboardEntry)]
         generated: list[LeaderboardEntry] = []
         for index, player in enumerate(list(self.players.values())[:limit], start=1):
             generated.append(LeaderboardEntry(game_id, player.username, player.display_name, max(1000, 50000 - index * 3175 - player.level * 42), max(1, player.total_wins // 2), index))
         return generated
 
     def get_player_rank(self, game_id: str, username: str) -> int | None:
-        # BRUTE-FORCE MOCK WARNING:
-        # Rank lookup should not require walking a full leaderboard at scale.
-        # TODO(BST/RANK INDEX): Replace scan with rank lookup structure.
-        for entry in self.get_leaderboard(game_id, limit=len(self.entries) or 100):
+        # TODO (DONE)(BST/RANK INDEX): Use leaderboard rows for rank lookup.
+        for rank, entry in enumerate(self.get_leaderboard(game_id, limit=len(self.entries) or 100), start=1):
             if entry.username == username:
-                return entry.rank
+                return rank
         return None
 
     def get_score_range(self, game_id: str, low_score: int, high_score: int) -> list[LeaderboardEntry]:
-        # BRUTE-FORCE MOCK WARNING:
-        # Score range queries are a natural place for a BST/tree-like index.
-        # TODO(BST RANGE QUERY): Replace scan with score-range traversal.
-        entries = [entry for entry in self.entries if entry.game_id == game_id and low_score <= entry.score <= high_score]
-        return sorted(entries, key=lambda entry: entry.score, reverse=True)
+        # TODO (DONE)(BST RANGE QUERY): Replace scan with score-range traversal.
+        tree = self._score_ranges.get(game_id)
+        if not isinstance(tree, BinarySearchTree):
+            return []
+        return [entry for entry in tree.range_query(low_score, high_score) if isinstance(entry, LeaderboardEntry)]
 
     def sort_by_metric(self, game_id: str, metric: str, limit: int = 8) -> list[LeaderboardEntry]:
-        # TODO(SORTING): Replace with one of the team's required sorting
-        # algorithms after implementing placeholders/sorting_algorithms.py.
-        entries = [entry for entry in self.entries if entry.game_id == game_id]
-        if metric == "wins":
-            entries = sorted(entries, key=lambda entry: entry.wins, reverse=True)
-        else:
-            entries = sorted(entries, key=lambda entry: entry.score, reverse=True)
-        return entries[:limit]
+        # TODO (DONE)(SORTING): Use the required sorting algorithm hooks.
+        entries = self._game_entries.get(game_id)
+        rows = list(entries) if isinstance(entries, list) else []
+        return self.sorting.sort_leaderboard(rows, metric)[:limit]

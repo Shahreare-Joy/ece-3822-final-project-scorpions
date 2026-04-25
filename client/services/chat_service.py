@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
+import re
+from pathlib import Path
+from typing import Any
 
 from client.models import ChatMessage
 from .session_chat import SessionChat
@@ -21,9 +25,12 @@ class ChatService:
     not grow memory forever.
     """
 
-    def __init__(self, messages: list[ChatMessage], capacity: int = 50) -> None:
+    def __init__(self, messages: list[ChatMessage], capacity: int = 50, storage_dir: str | Path | None = None) -> None:
         self.capacity = capacity
         self.session_chats: dict[str, SessionChat] = {}
+        self.storage_dir = Path(storage_dir) if storage_dir else None
+        if self.storage_dir is not None:
+            self.storage_dir.mkdir(parents=True, exist_ok=True)
         for message in messages:
             self.get_or_create_session_chat(message.session_id).add_message(message)
 
@@ -31,6 +38,7 @@ class ChatService:
         session_id = session_id.strip() or "global"
         if session_id not in self.session_chats:
             self.session_chats[session_id] = SessionChat(session_id, self.capacity)
+            self._load_session_from_disk(session_id)
         return self.session_chats[session_id]
 
     def add_message(self, session_id: str, sender: str, text: str, channel: str = "session", timestamp: str | None = None) -> ChatMessage:
@@ -39,12 +47,70 @@ class ChatService:
         when = timestamp or datetime.now().strftime("%H:%M")
         message = ChatMessage(channel, sender.strip() or "Guest", cleaned_text, when, session_id=session_id.strip() or "global")
         self.get_or_create_session_chat(message.session_id).add_message(message)
+        self._save_session_to_disk(message.session_id)
         # TODO(CHAT/C++): Broadcast this message to all players in the session.
         return message
 
     def get_recent_messages(self, session_id: str, limit: int | None = None) -> list[ChatMessage]:
+        if self.storage_dir is not None:
+            self._load_session_from_disk(session_id.strip() or "global")
         chat = self.get_or_create_session_chat(session_id)
         return chat.recent_messages(limit)
 
     def get_chat_preview(self, session_id: str = "global", limit: int = 3) -> list[ChatMessage]:
         return self.get_recent_messages(session_id, limit)
+
+    def _session_path(self, session_id: str) -> Path | None:
+        if self.storage_dir is None:
+            return None
+        safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", session_id.strip() or "global")
+        return self.storage_dir / f"{safe_id}.json"
+
+    def _load_session_from_disk(self, session_id: str) -> None:
+        path = self._session_path(session_id)
+        if path is None or not path.exists():
+            return
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(rows, list):
+            return
+        chat = SessionChat(session_id, self.capacity)
+        for row in rows[-self.capacity :]:
+            if isinstance(row, dict):
+                chat.add_message(self._message_from_record(row, session_id))
+        self.session_chats[session_id] = chat
+
+    def _save_session_to_disk(self, session_id: str) -> None:
+        path = self._session_path(session_id)
+        if path is None:
+            return
+        chat = self.get_or_create_session_chat(session_id)
+        records = [self._message_to_record(message) for message in chat.recent_messages(self.capacity)]
+        temp_path = path.with_suffix(".tmp")
+        try:
+            temp_path.write_text(json.dumps(records, indent=2), encoding="utf-8")
+            temp_path.replace(path)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _message_to_record(message: ChatMessage) -> dict[str, str]:
+        return {
+            "channel": message.channel,
+            "sender": message.sender,
+            "text": message.text,
+            "timestamp": message.timestamp,
+            "session_id": message.session_id,
+        }
+
+    @staticmethod
+    def _message_from_record(record: dict[str, Any], fallback_session_id: str) -> ChatMessage:
+        return ChatMessage(
+            str(record.get("channel", "session")),
+            str(record.get("sender", "Guest")),
+            str(record.get("text", "")),
+            str(record.get("timestamp", "")),
+            session_id=str(record.get("session_id") or fallback_session_id),
+        )

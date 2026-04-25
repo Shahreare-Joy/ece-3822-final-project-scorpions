@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from client.models import ChatMessage
-from client.placeholders import CircularChatBuffer
+from client.placeholders.chat_buffer import CircularChatBuffer
 
 
 class SessionChat:

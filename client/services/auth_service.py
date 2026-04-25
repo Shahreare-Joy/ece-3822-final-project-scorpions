@@ -1,18 +1,28 @@
 from __future__ import annotations
 
 from client.models import AuthResult, Player
+from .account_store import DemoAccountStore
 
 
 class AuthService:
-    """Temporary mock auth service.
+    """Client-facing auth service backed by persistent local demo accounts.
 
     TODO(ACCOUNTS/C++): Replace internals with real server auth and token
     handling. Keep the method names stable so UI screens do not change.
     """
 
-    def __init__(self, players: dict[str, Player]) -> None:
+    def __init__(self, players: dict[str, Player], account_store: DemoAccountStore | None = None) -> None:
         self.players = players
+        self.account_store = account_store
         self.connected = True
+        self.refresh_accounts()
+
+    def refresh_accounts(self) -> None:
+        """Merge persisted demo accounts into the shared player directory."""
+        if self.account_store is None:
+            return
+        for username, player in self.account_store.load_players().items():
+            self.players[username] = player
 
     def authenticate(self, username: str, password: str) -> AuthResult:
         username = username.strip().lower()
@@ -20,6 +30,7 @@ class AuthService:
             return AuthResult(False, "Server unavailable. Please try again later.")
         if not username or not password:
             return AuthResult(False, "Please fill in all login fields.")
+        self.refresh_accounts()
         player = self.players.get(username)
         if player is None or player.password != password:
             return AuthResult(False, "Invalid username or password.")
@@ -37,9 +48,11 @@ class AuthService:
             return AuthResult(False, "Password must be at least 6 characters.")
         if password != confirm_password:
             return AuthResult(False, "Passwords do not match.")
+        self.refresh_accounts()
         if username in self.players:
             return AuthResult(False, "Username already exists.")
-        player = Player(username, display_name, password, country, 2026, 1, "Arcade", 0, 0, "Online", "New Scorpions Arcade player.")
+        player = Player(username, display_name, password, country, 2026, 1, "Arcade", 0, 0, "Online", "New Scorpions Arcade player.", "avatar_new")
         self.players[username] = player
+        if self.account_store is not None:
+            self.account_store.add_or_update_player(player)
         return AuthResult(True, "Account created. You can log in now.", player)
-
