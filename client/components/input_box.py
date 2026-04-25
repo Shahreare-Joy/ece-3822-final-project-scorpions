@@ -7,11 +7,12 @@ from .text import draw_text
 
 
 class InputBox:
-    def __init__(self, rect: tuple[int, int, int, int], placeholder: str, font: pygame.font.Font, password: bool = False) -> None:
+    def __init__(self, rect: tuple[int, int, int, int], placeholder: str, font: pygame.font.Font, password: bool = False, max_length: int = 32) -> None:
         self.rect = pygame.Rect(rect)
         self.placeholder = placeholder
         self.font = font
         self.password = password
+        self.max_length = max_length
         self.text = ""
         self.active = False
         self.cursor_ms = 0
@@ -28,7 +29,7 @@ class InputBox:
                 return "tab"
             elif event.key == pygame.K_RETURN:
                 return "enter"
-            elif len(self.text) < 32 and event.unicode.isprintable():
+            elif len(self.text) < self.max_length and event.unicode.isprintable():
                 self.text += event.unicode
         return None
 

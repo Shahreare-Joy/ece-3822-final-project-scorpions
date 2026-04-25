@@ -91,7 +91,7 @@ def draw_nav_bar(surface: pygame.Surface, buttons: list[Button], fonts: FontSet,
     surface.blit(fonts.subheading.render("SCORPIONS ARCADE", True, Palette.TEXT), (28, 13))
     status = "Connected" if connected else "Disconnected"
     status_color = Palette.SUCCESS if connected else Palette.ERROR
-    surface.blit(fonts.tiny.render(f"Mock backend: {status}", True, status_color), (30, 42))
+    surface.blit(fonts.tiny.render(f"Local services: {status}", True, status_color), (30, 42))
     pygame.draw.line(surface, Palette.BORDER, (970, 15), (970, 49), 1)
     for button in buttons:
         button.draw(surface)
