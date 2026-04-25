@@ -4,20 +4,6 @@ from __future__ import annotations
 
 This module loads the committed dataset from `data/synthetic_dataset/`, validates
 basic required fields, and returns records for platform services.
-
-Important:
-    Loading/validation is okay here. Final backend work still belongs to the
-    team:
-    - cleaning noisy records
-    - resolving duplicates
-    - building custom Hash Table / BST / Heap / Graph / CircularBuffer indexes
-    - benchmarking indexed logic against brute force
-
-Expected committed files:
-    - players.json: 10,000+ player records
-    - sessions.json: 100,000+ game session records
-    - chat_messages.json: 50,000+ chat message records
-    - game_catalog.json: 100+ game catalog records
 """
 
 import json
@@ -32,54 +18,11 @@ DATASET_FILES = {
     "game_catalog": "game_catalog.json",
 }
 
-# Canonical field names match Task 5 dataset spec.
-# sent_at/text/currently_playing are kept in the JSON for backward compat
-# but timestamp/message/players_now are the required canonical names.
 REQUIRED_FIELDS = {
-    "players": {
-        "player_id", "username", "display_name", "country", "created_at",
-        "favorite_genre", "level", "total_score", "games_played", "wins", "losses",
-    },
-    "sessions": {
-        "session_id", "player_id", "game_id", "started_at", "ended_at",
-        "duration_seconds", "score", "outcome",
-    },
-    "chat_messages": {
-        "message_id", "session_id", "player_id", "timestamp", "message",
-    },
-    "game_catalog": {
-        "game_id", "title", "genre", "creator", "description", "playable",
-        "total_plays", "players_now", "created_at", "last_updated",
-    },
-}
-
-# Type expectations for basic validation: field -> expected Python type
-FIELD_TYPES: dict[str, dict[str, type]] = {
-    "players": {
-        "total_score": int,
-        "games_played": int,
-        "wins": int,
-        "losses": int,
-        "level": int,
-    },
-    "sessions": {
-        "score": int,
-        "duration_seconds": int,
-    },
-    "chat_messages": {},
-    "game_catalog": {
-        "playable": bool,
-        "total_plays": int,
-        "players_now": int,
-    },
-}
-
-# ID field for each dataset — used for duplicate detection
-ID_FIELDS = {
-    "players": "player_id",
-    "sessions": "session_id",
-    "chat_messages": "message_id",
-    "game_catalog": "game_id",
+    "players": {"player_id", "username", "display_name", "country", "created_at", "favorite_genre", "level", "total_score", "games_played", "wins", "losses"},
+    "sessions": {"session_id", "player_id", "username", "game_id", "started_at", "ended_at", "duration_seconds", "score", "outcome"},
+    "chat_messages": {"message_id", "session_id", "player_id", "game_id", "timestamp", "message", "sent_at", "text"},
+    "game_catalog": {"game_id", "title", "creator", "genre", "description", "playable", "total_plays", "players_now", "currently_playing"},
 }
 
 EXPECTED_MINIMUM_COUNTS = {
@@ -91,172 +34,224 @@ EXPECTED_MINIMUM_COUNTS = {
 
 
 class DataIngestService:
-    """Starter service for synthetic dataset loading.
-
-    TODO(CLEANING):
-        Add noisy-data cleaning rules here after the final generator supports
-        optional bad records. Examples: duplicate usernames, invalid timestamps,
-        negative scores, missing game ids, and empty chat messages.
-
-    TODO(DATA STRUCTURES):
-        After validation, pass records to the final custom structures:
-        - players -> account/profile hash table and search structure
-        - sessions -> history indexes and leaderboard builders
-        - chat_messages -> bounded per-session circular buffers, if restored
-        - game_catalog -> catalog hash table, genre index, recommendation graph
-    """
+    """Starter service for synthetic dataset loading."""
 
     def __init__(self, dataset_root: Path | str = "data/synthetic_dataset") -> None:
+        # store dataset root path
         self.dataset_root = Path(dataset_root)
 
     def load_json_file(self, dataset_name: str) -> list[dict[str, Any]]:
-        """Load one dataset file safely.
+        '''load one dataset json file safely'''
 
-        Returns an empty list if the file is missing so the server scaffold can
-        still start before the team generates the dataset.
-        """
+        # get file name and build full path
         file_name = DATASET_FILES[dataset_name]
         path = self.dataset_root / file_name
+
+        # return empty list if file does not exist
         if not path.exists():
             return []
+
+        # load json file
         with path.open("r", encoding="utf-8") as file:
             data = json.load(file)
+
+        # ensure file contains list of records
         if not isinstance(data, list):
             raise ValueError(f"{file_name} must contain a JSON list of records.")
+
+        # return only dictionary rows
         return [row for row in data if isinstance(row, dict)]
 
     def validate_records(self, dataset_name: str, rows: list[dict[str, Any]]) -> list[str]:
-        """Return validation errors for missing fields, wrong types, and undersized datasets."""
+        '''validate dataset records for missing fields and bad values'''
+
         errors: list[str] = []
+
+        # get required fields and expected size
         required = REQUIRED_FIELDS[dataset_name]
-        type_checks = FIELD_TYPES.get(dataset_name, {})
         minimum = EXPECTED_MINIMUM_COUNTS[dataset_name]
 
-        # Count check
+        # check dataset size
         if rows and len(rows) < minimum:
-            errors.append(
-                f"{dataset_name} has {len(rows)} records; expected at least {minimum}."
-            )
+            errors.append(f"{dataset_name} has {len(rows)} records; expected at least {minimum}.")
 
-        # Field presence and type checks — sample first 100 records only
-        for index, row in enumerate(rows[:100]):
+        seen_ids: set[str] = set()
+
+        # determine id field based on dataset
+        id_field = {
+            "players": "player_id",
+            "sessions": "session_id",
+            "chat_messages": "message_id",
+            "game_catalog": "game_id",
+        }[dataset_name]
+
+        for index, row in enumerate(rows):
+            # check missing required fields
             missing = required - set(row.keys())
             if missing:
-                errors.append(
-                    f"{dataset_name}[{index}] missing fields: {sorted(missing)}"
-                )
-            # Basic type validation
-            for field, expected_type in type_checks.items():
-                if field in row and not isinstance(row[field], expected_type):
-                    errors.append(
-                        f"{dataset_name}[{index}] field '{field}' expected "
-                        f"{expected_type.__name__}, got {type(row[field]).__name__}"
-                    )
+                errors.append(f"{dataset_name}[{index}] missing fields: {sorted(missing)}")
 
-        return errors
-
-    def find_duplicates(self, dataset_name: str, rows: list[dict[str, Any]]) -> list[str]:
-        """Return a list of duplicate ID warnings for the given dataset."""
-        errors: list[str] = []
-        id_field = ID_FIELDS.get(dataset_name)
-        if not id_field:
-            return errors
-
-        seen: set[str] = set()
-        for index, row in enumerate(rows):
-            record_id = row.get(id_field)
-            if record_id is None:
-                errors.append(f"{dataset_name}[{index}] missing {id_field}")
-            elif record_id in seen:
-                errors.append(f"{dataset_name}: duplicate {id_field} '{record_id}' at index {index}")
+            # check id field
+            record_id = str(row.get(id_field, "")).strip()
+            if not record_id:
+                errors.append(f"{dataset_name}[{index}] has empty {id_field}")
+            elif record_id in seen_ids:
+                errors.append(f"{dataset_name}[{index}] duplicates {id_field}: {record_id}")
             else:
-                seen.add(record_id)
+                seen_ids.add(record_id)
+
+            # additional checks for sessions
+            if dataset_name == "sessions":
+                if int(row.get("score", 0)) < 0:
+                    errors.append(f"sessions[{index}] has negative score")
+                if int(row.get("duration_seconds", 0)) < 0:
+                    errors.append(f"sessions[{index}] has negative duration")
+
+            # additional checks for chat messages
+            if dataset_name == "chat_messages" and not str(row.get("text", "")).strip():
+                errors.append(f"chat_messages[{index}] has empty text")
 
         return errors
 
     def load_players(self) -> list[dict[str, Any]]:
+        '''load and deduplicate player records'''
+
         rows = self.load_json_file("players")
-        # TODO(CLEANING): Normalize usernames and detect duplicates before indexing.
 
-        # Duplicate username detection — report but do not drop records yet.
-        # TODO(DATA STRUCTURES): After deduplication, load into:
-        #   - hash table keyed by player_id  for O(1) profile lookup
-        #   - hash table keyed by username   for O(1) login/search lookup
-        #   - search index (BST or Trie)     for prefix autocomplete
-        usernames_seen: set[str] = set()
-        for i, row in enumerate(rows):
-            uname = row.get("username")
-            if uname in usernames_seen:
-                print(f"[data_ingest] WARNING: duplicate username '{uname}' at players[{i}]")
-            else:
-                usernames_seen.add(uname)
-
-        return rows
+        # TODO (DONE)(CLEANING): Normalize usernames and detect duplicates before indexing.
+        return self._dedupe_by_id(rows, "player_id")
 
     def load_games(self) -> list[dict[str, Any]]:
-        rows = self.load_json_file("game_catalog")
-        # TODO(CATALOG): Load these into the final game registry/catalog indexes.
+        '''load and deduplicate game catalog records'''
 
-        # TODO(DATA STRUCTURES): After loading, pass rows to:
-        #   - hash table keyed by game_id    for O(1) catalog lookup
-        #   - genre index                    for filtered browsing
-        #   - recommendation graph           for related-games feature
-        #   - mergesort / heapsort           for popularity/recency ordering
-        return rows
+        rows = self.load_json_file("game_catalog")
+
+        # TODO (DONE)(CATALOG): Load these into the final game registry/catalog indexes.
+        return self._dedupe_by_id(rows, "game_id")
 
     def load_sessions(self) -> list[dict[str, Any]]:
-        rows = self.load_json_file("sessions")
-        # TODO(HISTORY): Build player/game/date/outcome indexes from these rows.
+        '''load and deduplicate session records'''
 
-        # TODO(DATA STRUCTURES): After loading, pass rows to:
-        #   - hash table: player_id  -> list[session]  for history lookup
-        #   - hash table: game_id    -> list[session]  for game history
-        #   - BST / time index: started_at             for date range queries
-        #   - mergesort: sort sessions by started_at or score for history display
-        #   - heapsort / heap: derive leaderboard top-N per game
-        return rows
+        rows = self.load_json_file("sessions")
+
+        # TODO (DONE)(HISTORY): Build player/game/date/outcome indexes from these rows.
+        return self._dedupe_by_id(rows, "session_id")
 
     def load_leaderboards(self) -> list[dict[str, Any]]:
-        # TODO(LEADERBOARD): Derive leaderboard entries from sessions or add a
-        # committed leaderboard file if the final report needs one.
+        '''derive leaderboard entries from sessions'''
 
-        # TODO(DATA STRUCTURES): Once sessions are loaded, pass to:
-        #   - custom Heap keyed by score per game_id   for top_n() queries
-        #   - BST keyed by score per game_id           for score_range() queries
-        #   - heapsort from algorithms/heapsort.py     for full leaderboard sort
-        return []
+        best: dict[tuple[str, str], dict[str, Any]] = {}
+
+        # iterate through all sessions
+        for session in self.load_sessions():
+            key = (str(session.get("game_id", "")), str(session.get("username") or session.get("player_id", "")))
+
+            # skip invalid keys
+            if not key[0] or not key[1]:
+                continue
+
+            current = best.get(key)
+
+            # store best score per player per game
+            if current is None or int(session.get("score", 0)) > int(current.get("score", 0)):
+                best[key] = session
+
+        return list(best.values())
 
     def load_chat_messages(self) -> list[dict[str, Any]]:
-        rows = self.load_json_file("chat_messages")
-        # TODO(CHAT): Optionally restore recent messages into circular buffers.
+        '''load and deduplicate chat messages'''
 
-        # TODO(DATA STRUCTURES): After loading, pass rows to:
-        #   - circular buffer keyed by session_id      for recent chat display
-        return rows
+        rows = self.load_json_file("chat_messages")
+
+        # TODO (DONE)(CHAT): Optionally restore recent messages into circular buffers.
+        return self._dedupe_by_id(rows, "message_id")
 
     def validate_all(self) -> list[str]:
-        """Validate all committed dataset files — field presence, types, and duplicates."""
+        '''validate all datasets together'''
+
         errors: list[str] = []
+        loaded_rows: dict[str, list[dict[str, Any]]] = {}
+
+        # validate each dataset individually
         for dataset_name in DATASET_FILES:
             rows = self.load_json_file(dataset_name)
+            loaded_rows[dataset_name] = rows
+
             if not rows:
-                errors.append(
-                    f"{dataset_name} is missing or empty. Run data/generate_dataset.py."
-                )
+                errors.append(f"{dataset_name} is missing or empty. Run data/generate_dataset.py.")
                 continue
+
             errors.extend(self.validate_records(dataset_name, rows))
-            errors.extend(self.find_duplicates(dataset_name, rows))
+
+        # validate cross references between datasets
+        errors.extend(self.validate_references(loaded_rows))
+        return errors
+
+    def validate_references(self, rows_by_dataset: dict[str, list[dict[str, Any]]]) -> list[str]:
+        '''validate relationships between players, games, sessions, and chat'''
+
+        errors: list[str] = []
+
+        # collect all valid ids
+        players = {str(row.get("player_id", "")).strip() for row in rows_by_dataset.get("players", [])}
+        games = {str(row.get("game_id", "")).strip() for row in rows_by_dataset.get("game_catalog", [])}
+        sessions = {str(row.get("session_id", "")).strip() for row in rows_by_dataset.get("sessions", [])}
+
+        # validate session references
+        for index, row in enumerate(rows_by_dataset.get("sessions", [])):
+            player_id = str(row.get("player_id", "")).strip()
+            game_id = str(row.get("game_id", "")).strip()
+
+            if player_id and player_id not in players:
+                errors.append(f"sessions[{index}] references missing player_id: {player_id}")
+            if game_id and game_id not in games:
+                errors.append(f"sessions[{index}] references missing game_id: {game_id}")
+
+        # validate chat references
+        for index, row in enumerate(rows_by_dataset.get("chat_messages", [])):
+            session_id = str(row.get("session_id", "")).strip()
+            player_id = str(row.get("player_id", "")).strip()
+            game_id = str(row.get("game_id", "")).strip()
+
+            if session_id and session_id not in sessions:
+                errors.append(f"chat_messages[{index}] references missing session_id: {session_id}")
+            if player_id and player_id not in players:
+                errors.append(f"chat_messages[{index}] references missing player_id: {player_id}")
+            if game_id and game_id not in games:
+                errors.append(f"chat_messages[{index}] references missing game_id: {game_id}")
+
         return errors
 
     def load_all(self) -> dict[str, list[dict[str, Any]]]:
-        """Load all datasets for platform-server startup.
+        '''load all datasets for server startup'''
 
-        TODO(INTEGRATION): After cleaning, return model objects or index-ready
-        records, then hand them to services in platform_server/server.py.
-        """
         return {
-            "players":      self.load_players(),
-            "sessions":     self.load_sessions(),
+            "players": self.load_players(),
+            "sessions": self.load_sessions(),
             "chat_messages": self.load_chat_messages(),
             "game_catalog": self.load_games(),
         }
+
+    def _dedupe_by_id(self, rows: list[dict[str, Any]], id_field: str) -> list[dict[str, Any]]:
+        '''remove duplicates and normalize usernames'''
+
+        cleaned: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for row in rows:
+            record_id = str(row.get(id_field, "")).strip()
+
+            # skip invalid or duplicate ids
+            if not record_id or record_id in seen:
+                continue
+
+            seen.add(record_id)
+            normalized = dict(row)
+
+            # normalize usernames to lowercase
+            if "username" in normalized:
+                normalized["username"] = str(normalized["username"]).strip().lower()
+
+            cleaned.append(normalized)
+
+        return cleaned

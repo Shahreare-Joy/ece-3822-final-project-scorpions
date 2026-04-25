@@ -18,82 +18,88 @@ from datastructures.hash_table import ChainedHashTable
 
 @dataclass
 class AccountRecord:
+    # store account username
     username: str
+
+    # store hashed password instead of plain text
     password_hash: str
+
+    # store display name shown in UI
     display_name: str
 
 
 class AccountService:
     def __init__(self) -> None:
-        # Main hash table storing username -> AccountRecord
-        self._account_index = ChainedHashTable()  # Fast lookup for login/signup
+        # create hash table for username -> AccountRecord lookup
+        self._account_index = ChainedHashTable()  # TODO (DONE): replace with ChainedHashTable.
 
     def signup(self, username: str, password: str, display_name: str) -> bool:
+        '''create a new account if input is valid'''
+
         # TODO (DONE)(RESILIENCE): Validate required fields, duplicate usernames, and bad input.
         # TODO (DONE)(PERSISTENCE): Return a success flag so server/persistence can save after insertion.
         # TODO (DONE)(HASH TABLE): Insert account into custom hash table.
 
-        # Normalize username for consistent storage (case-insensitive login)
+        # normalize username for consistent lookup
         normalized = self._normalize_username(username)
 
-        # Basic validation: username exists, password length, display name not empty
+        # reject empty username, weak password, or empty display name
         if not normalized or len(password) < 4 or not display_name.strip():
             return False
 
-        # Prevent duplicate usernames
+        # reject duplicate username
         if self._account_index.contains(normalized):
             return False
 
-        # Store account with hashed password
-        self._account_index.put(
-            normalized,
-            AccountRecord(
-                normalized,
-                self._hash_password(password),
-                display_name.strip()
-            )
-        )
+        # store new account in custom hash table
+        self._account_index.put(normalized, AccountRecord(normalized, self._hash_password(password), display_name.strip()))
         return True
 
     def login(self, username: str, password: str) -> bool:
+        '''validate login credentials'''
+
         # TODO (DONE)(RESILIENCE): Return a safe error for missing or malformed credentials.
         # TODO (DONE)(HASH TABLE): Lookup username in custom hash table, validate password.
 
-        # Normalize username for lookup
+        # normalize username before lookup
         normalized = self._normalize_username(username)
 
-        # Reject empty inputs
+        # reject missing username or password
         if not normalized or not password:
             return False
 
-        # Retrieve stored account
+        # get account record from hash table
         account = self._account_index.get(normalized)
 
-        # Validate type and compare hashed passwords
-        return (
-            isinstance(account, AccountRecord)
-            and account.password_hash == self._hash_password(password)
-        )
+        # compare stored password hash with input password hash
+        return isinstance(account, AccountRecord) and account.password_hash == self._hash_password(password)
 
     def load_accounts(self, rows: list[dict[str, object]]) -> int:
         """Load account-like player rows from the dataset."""
 
         loaded = 0
+
         for row in rows:
-            # Extract username and display name from dataset row
+            # read username and display name from dataset row
             username = str(row.get("username", ""))
             display_name = str(row.get("display_name", username))
 
-            # Use default "demo" password for seeded accounts (NOT secure, demo only)
+            # Dataset seed accounts use a deterministic starter password for
+            # demos only. Replace this policy before any real deployment.
             if self.signup(username, "demo", display_name):
                 loaded += 1
+
         return loaded
 
     def _normalize_username(self, username: str) -> str:
-        # Trim spaces and force lowercase to avoid duplicates like "User" vs "user"
+        '''normalize username for case-insensitive matching'''
+
+        # trim spaces and convert to lowercase
         return username.strip().lower()
 
     def _hash_password(self, password: str) -> str:
+        '''hash password for storage'''
+
         # Class-project starter hash. A real account server should use a salted
         # password hashing function such as bcrypt/argon2.
         return hashlib.sha256(password.encode("utf-8")).hexdigest()

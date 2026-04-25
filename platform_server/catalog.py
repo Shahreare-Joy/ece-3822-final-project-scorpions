@@ -19,65 +19,95 @@ from .game_registry import RegisteredGame, all_registered_games
 
 class CatalogService:
     def __init__(self) -> None:
-        # Main lookup tables and graph initialized here
-        self._games_by_id = ChainedHashTable()  # Fast O(1) average lookup by game_id
-        self._genre_index = ChainedHashTable()  # Maps genre -> list of games
-        self._recommendation_graph = Graph()  # Graph connects genres to games
+        # create lookup table for game_id searches
+        self._games_by_id = ChainedHashTable()  # TODO (DONE): custom hash table.
+
+        # create genre index for filtering games by category
+        self._genre_index = ChainedHashTable()  # TODO (DONE): custom index for genre filtering.
+
+        # create graph for recommendation relationships
+        self._recommendation_graph = Graph()  # TODO (DONE): custom graph.
+
+        # load starter games from registry
         self._starter_registry = all_registered_games()
         self.load_games(self._starter_registry)
 
     def load_games(self, games: list[RegisteredGame]) -> None:
-        # Rebuild all internal structures when loading a new dataset
+        '''load games into hash indexes and recommendation graph'''
+
+        # keep copy of all games for all_games and fallback browsing
         self._starter_registry = list(games)
-        self._games_by_id = ChainedHashTable(max(16, len(games) * 2))  # Resize based on dataset size
+
+        # rebuild game lookup table with enough capacity
+        self._games_by_id = ChainedHashTable(max(16, len(games) * 2))
+
+        # rebuild genre index and recommendation graph
         self._genre_index = ChainedHashTable()
         self._recommendation_graph = Graph()
 
         for game in games:
-            # Insert into ID lookup table
+            # index game by exact game_id
             self._games_by_id.put(game.game_id, game)
 
-            # Build genre index (group games by genre)
+            # get existing list for this genre
             existing = self._genre_index.get(game.genre)
+
+            # create new genre list if this is the first game in genre
             if not isinstance(existing, list):
                 existing = []
                 self._genre_index.put(game.genre, existing)
+
+            # add game to genre list
             existing.append(game)
 
-            # Add edge in recommendation graph (genre -> game)
-            self._recommendation_graph.add_edge(
-                f"genre:{game.genre}", f"game:{game.game_id}", 1.0
-            )
+            # connect genre node to game node in recommendation graph
+            self._recommendation_graph.add_edge(f"genre:{game.genre}", f"game:{game.game_id}", 1.0)
 
     def get_game(self, game_id: str) -> RegisteredGame | None:
+        '''return one game by exact game_id'''
+
         # TODO (DONE)(RESILIENCE): Validate game_id before lookup.
+
+        # reject empty game_id
         if not game_id:
             return None
 
-        # Retrieve from hash table and type-check
+        # lookup game in custom hash table
         game = self._games_by_id.get(game_id)
+
+        # return only valid RegisteredGame objects
         return game if isinstance(game, RegisteredGame) else None
 
     def filter_by_genre(self, genre: str) -> list[RegisteredGame]:
-        # TODO (DONE)(RESILIENCE): Normalize genre and reject unsupported filters in the API layer.
-        if not genre or genre == "All":
-            return list(self._starter_registry)  # Return all if no filter
+        '''return games matching selected genre'''
 
-        # Lookup pre-built genre index
+        # TODO (DONE)(RESILIENCE): Normalize genre and reject unsupported filters in the API layer.
+
+        # return all games if no specific genre is selected
+        if not genre or genre == "All":
+            return list(self._starter_registry)
+
+        # get games from genre index
         games = self._genre_index.get(genre)
+
+        # return matching games or empty list
         return list(games) if isinstance(games, list) else []
 
     def popular_games(self, limit: int = 20) -> list[RegisteredGame]:
-        # TODO (DONE)(BENCHMARK): Compare popularity sorting algorithms on large catalogs.
-        limit = max(1, min(int(limit), 100))  # Clamp limit between 1 and 100
+        '''return popular games limited to requested count'''
 
-        # Sort by "playable" flag (placeholder for popularity metric)
-        return sorted(
-            self._starter_registry,
-            key=lambda game: game.playable,
-            reverse=True
-        )[:limit]
+        # TODO (DONE)(BENCHMARK): Compare popularity sorting algorithms on large catalogs.
+
+        # keep limit in safe range
+        limit = max(1, min(int(limit), 100))
+
+        # sort playable games first as simple popularity placeholder
+        return sorted(self._starter_registry, key=lambda game: game.playable, reverse=True)[:limit]
 
     def all_games(self) -> list[RegisteredGame]:
+        '''return all catalog games'''
+
         # TODO (DONE)(CATALOG): Return dataset/registry-backed catalog rows.
-        return list(self._starter_registry)  # Return a copy to avoid external mutation
+
+        # return copy so caller does not mutate original registry
+        return list(self._starter_registry)
