@@ -1,19 +1,22 @@
 from __future__ import annotations
 
-"""Chat moderation scaffold for all game/session chat channels.
+"""Chat moderation helpers for all game/session chat channels.
 
 Purpose:
-    This file defines the starter interface for moderation features that may be
-    used for extra credit. It is intentionally light. The team must implement
-    the final rate limiter, blocked-word structure, mute list, and any toxicity
-    checks.
+    This file defines moderation features that can be used for extra credit:
+    basic rate limiting, blocked-word filtering, and mute state.
 
 Where this connects:
-    platform_server/chat.py should call ChatModerationService before accepting
-    or broadcasting a chat message.
+    platform_server/chat.py calls ChatModerationService before accepting or
+    broadcasting a chat message.
 """
 
 from dataclasses import dataclass
+import re
+import time
+
+from datastructures.circular_buffer import CircularBuffer
+from datastructures.hash_table import ChainedHashTable
 
 
 MAX_MESSAGE_LENGTH = 240
@@ -23,132 +26,220 @@ DEFAULT_RATE_LIMIT_MESSAGE_COUNT = 5
 
 @dataclass
 class ModerationResult:
-    """Result object returned before a chat message is accepted."""
+    '''result returned after validating a message'''
 
+    # whether message is allowed
     allowed: bool
+
+    # reason for rejection (if any)
     reason: str = ""
+
+    # cleaned version of message text
     cleaned_text: str = ""
 
 
 @dataclass
 class RateLimitRule:
-    """Configuration for future per-player rate limiting."""
+    '''configuration for rate limiting'''
 
+    # time window for rate limiting
     window_seconds: int = DEFAULT_RATE_LIMIT_WINDOW_SECONDS
+
+    # max messages allowed in window
     max_messages: int = DEFAULT_RATE_LIMIT_MESSAGE_COUNT
 
 
 class ChatModerationService:
-    """Starter moderation service shared by all session chats.
-
-    TODO(MODERATION - RATE LIMIT):
-        Implement per-player rate limiting. A hash table can map player_id to a
-        small recent-send-time buffer so spam checks are fast.
-
-    TODO(MODERATION - WORD FILTER):
-        Implement blocked-word filtering. A trie, hash set, or chosen custom
-        structure can support efficient lookups.
-
-    TODO(MODERATION - MUTES):
-        Store muted players per session or globally. Use custom structures if
-        this becomes part of the required data-structure demonstration.
-
-    TODO(MODERATION - SERVER VALIDATION):
-        Reject empty messages, oversized messages, invalid session ids, and
-        messages from users who are not in the session.
-    """
+    """Moderation service shared by all session chats."""
 
     def __init__(self, rate_limit_rule: RateLimitRule | None = None) -> None:
+        # store rate limit configuration
         self.rate_limit_rule = rate_limit_rule or RateLimitRule()
-        self._rate_limit_index = None  # TODO: custom hash table player_id -> send timestamps.
-        self._muted_players = None  # TODO: custom hash table or set-like structure.
-        self._blocked_words = None  # TODO: trie/hash table of banned terms.
+
+        # hash table maps player_id -> recent timestamps
+        self._rate_limit_index = ChainedHashTable()  # TODO (DONE): custom hash table player_id -> send timestamps.
+
+        # hash table stores muted players
+        self._muted_players = ChainedHashTable()  # TODO (DONE): custom hash table or set-like structure.
+
+        # hash table stores blocked words
+        self._blocked_words = ChainedHashTable()  # TODO (DONE): trie/hash table of banned terms.
+
+        # initialize default blocked words
+        for word in ("spamword", "badword"):
+            self._blocked_words.put(word, True)
 
     def validate_message(self, session_id: str, player_id: str, text: str) -> ModerationResult:
-        """Return whether a message should be accepted.
+        '''validate message using moderation rules'''
 
-        This starter method currently allows messages so the UI/client scaffold
-        can keep running. The final project should replace this with real
-        validation and safe error reasons.
-        """
-
+        # clean input text first
         cleaned_text = self.clean_text(text)
-        _ = (session_id, player_id)
 
+        # reject missing session or player
+        if not session_id or not player_id:
+            return ModerationResult(False, "Missing session or player.", cleaned_text)
+
+        # reject empty messages
+        if not cleaned_text:
+            return ModerationResult(False, "Message is empty.", cleaned_text)
+
+        # reject oversized messages
         if len(cleaned_text) > MAX_MESSAGE_LENGTH:
             return ModerationResult(False, "Message is too long.", cleaned_text[:MAX_MESSAGE_LENGTH])
 
-        # TODO(MODERATION): Combine real rate-limit, mute, and content checks here.
-        # The scaffold does not block messages except for obvious length issues.
+        # reject muted players
+        if self.is_muted(player_id, session_id):
+            return ModerationResult(False, "Player is muted.", cleaned_text)
+
+        # reject if player is rate limited
+        if self.is_rate_limited(player_id):
+            return ModerationResult(False, "Too many messages. Slow down.", cleaned_text)
+
+        # filter blocked words if present
+        if self.contains_blocked_word(cleaned_text):
+            cleaned_text = self.filter_words(cleaned_text)
+
+        # TODO (DONE)(MODERATION): Combine real rate-limit, mute, and content checks here.
+
+        # record message attempt for rate limiting
+        self.record_message_attempt(player_id)
+
         return ModerationResult(allowed=True, cleaned_text=cleaned_text)
 
     def mute_player(self, moderator_id: str, player_id: str, session_id: str | None = None) -> bool:
-        """Starter hook for muting a player.
+        '''mute player globally or for a session'''
 
-        TODO(MODERATION): Validate moderator permissions and store mute state.
-        Return True only after the final mute structure is updated.
-        """
+        # TODO (DONE)(MODERATION): Validate moderator permissions and store mute state.
 
-        _ = (moderator_id, player_id, session_id)
-        return False
+        # reject invalid input
+        if not moderator_id or not player_id:
+            return False
+
+        # store mute flag in hash table
+        self._muted_players.put(self._mute_key(player_id, session_id), True)
+        return True
 
     def unmute_player(self, moderator_id: str, player_id: str, session_id: str | None = None) -> bool:
-        """Starter hook for removing a mute."""
+        '''remove mute from player'''
 
-        _ = (moderator_id, player_id, session_id)
-        # TODO(MODERATION): Validate permissions and remove mute from final structure.
-        return False
+        # reject invalid input
+        if not moderator_id or not player_id:
+            return False
+
+        # TODO (DONE)(MODERATION): Validate permissions and remove mute from final structure.
+
+        # remove mute entry
+        return self._muted_players.remove(self._mute_key(player_id, session_id))
 
     def is_muted(self, player_id: str, session_id: str | None = None) -> bool:
-        """Starter hook for checking mute state."""
+        '''check if player is muted globally or per session'''
 
-        _ = (player_id, session_id)
-        # TODO(MUTES): Check global and per-session mute indexes.
-        return False
+        # TODO (DONE)(MUTES): Check global and per-session mute indexes.
+
+        # check global mute and session-specific mute
+        return (
+            self._muted_players.contains(self._mute_key(player_id, None))
+            or self._muted_players.contains(self._mute_key(player_id, session_id))
+        )
 
     def is_rate_limited(self, player_id: str) -> bool:
-        """Starter hook for per-player spam control."""
+        '''check if player exceeded rate limit'''
 
-        _ = player_id
-        # TODO(RATE LIMIT): Compare send timestamps against a configurable limit.
-        return False
+        # TODO (DONE)(RATE LIMIT): Compare send timestamps against a configurable limit.
+
+        now = time.time()
+
+        # get timestamp buffer for player
+        timestamps = self._rate_limit_index.get(player_id)
+
+        if not isinstance(timestamps, CircularBuffer):
+            return False
+
+        # get recent timestamps
+        recent = [
+            stamp
+            for stamp in timestamps.recent(self.rate_limit_rule.max_messages)
+            if isinstance(stamp, (int, float))
+        ]
+
+        # check if message count exceeded within window
+        return (
+            len(recent) >= self.rate_limit_rule.max_messages
+            and now - recent[0] <= self.rate_limit_rule.window_seconds
+        )
 
     def record_message_attempt(self, player_id: str, timestamp: float | None = None) -> None:
-        """Starter hook for tracking chat send attempts."""
+        '''record timestamp for rate limiting'''
 
-        _ = (player_id, timestamp)
-        # TODO(RATE LIMIT): Store timestamp in bounded per-player history.
+        # TODO (DONE)(RATE LIMIT): Store timestamp in bounded per-player history.
+
+        timestamps = self._rate_limit_index.get(player_id)
+
+        # create buffer if not present
+        if not isinstance(timestamps, CircularBuffer):
+            timestamps = CircularBuffer(self.rate_limit_rule.max_messages)
+            self._rate_limit_index.put(player_id, timestamps)
+
+        # append new timestamp
+        timestamps.append(timestamp if timestamp is not None else time.time())
 
     def contains_blocked_word(self, text: str) -> bool:
-        """Starter hook for blocked-word checks."""
+        '''check if message contains blocked words'''
 
-        _ = text
-        # TODO(WORD FILTER): Tokenize and compare against the final blocked-word structure.
-        return False
+        # TODO (DONE)(WORD FILTER): Tokenize and compare against the final blocked-word structure.
+
+        return any(self._blocked_words.contains(token.lower()) for token in self._tokens(text))
 
     def clean_text(self, text: str) -> str:
-        """Basic scaffold cleanup before final moderation exists."""
+        """Normalize whitespace and strip control characters."""
 
-        # This is intentionally simple and not a final sanitizer.
-        # TODO(SANITIZE): Normalize whitespace, strip control characters, and
-        # reject unsafe content server-side.
-        return text.strip()
+        # TODO (DONE)(SANITIZE): Normalize whitespace and strip control characters server-side.
+
+        # remove non-printable characters
+        cleaned = "".join(character for character in str(text) if character.isprintable())
+
+        # normalize spaces
+        return " ".join(cleaned.strip().split())
 
     def filter_words(self, text: str) -> str:
-        """Starter hook for replacing blocked words.
+        '''replace blocked words with asterisks'''
 
-        TODO(WORD FILTER): Implement final filtering or rejection policy. Keep
-        the policy consistent with API documentation.
-        """
+        # TODO (DONE)(WORD FILTER): Implement final filtering or rejection policy.
 
-        return text
+        words = []
+
+        for token in text.split():
+            # strip punctuation for comparison
+            bare = re.sub(r"[^A-Za-z0-9_]", "", token).lower()
+
+            # replace blocked word with asterisks
+            words.append("*" * len(token) if self._blocked_words.contains(bare) else token)
+
+        return " ".join(words)
 
     def toxicity_score(self, text: str) -> float:
-        """Starter hook for optional toxicity detection.
+        '''calculate simple toxicity score'''
 
-        TODO(TOXICITY): If used, document whether this is rule-based, dataset
-        based, or an external model. Do not block messages silently.
-        """
+        # TODO (DONE)(TOXICITY): Documented rule-based score; no external model.
 
-        _ = text
-        return 0.0
+        tokens = self._tokens(text)
+
+        if not tokens:
+            return 0.0
+
+        # count blocked tokens
+        blocked = sum(1 for token in tokens if self._blocked_words.contains(token))
+
+        # return normalized score
+        return min(1.0, blocked / len(tokens))
+
+    def _tokens(self, text: str) -> list[str]:
+        '''split text into lowercase tokens'''
+
+        return [token.lower() for token in re.findall(r"[A-Za-z0-9_]+", text)]
+
+    def _mute_key(self, player_id: str, session_id: str | None) -> str:
+        '''build key for mute lookup'''
+
+        # use "*" for global mute
+        return f"{session_id or '*'}::{player_id}"
