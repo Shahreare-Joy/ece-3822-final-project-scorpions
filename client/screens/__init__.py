@@ -8,6 +8,7 @@ from .leaderboard import LeaderboardScreen
 from .login import LoginScreen
 from .profile import ProfileScreen
 from .search import SearchPlayersScreen
+from .session_chat import SessionChatScreen
 from .settings import SettingsScreen
 from .welcome import WelcomeScreen
 
@@ -22,6 +23,7 @@ __all__ = [
     "LoginScreen",
     "ProfileScreen",
     "SearchPlayersScreen",
+    "SessionChatScreen",
     "SettingsScreen",
     "WelcomeScreen",
 ]
