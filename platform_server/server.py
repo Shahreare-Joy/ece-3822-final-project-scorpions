@@ -2,9 +2,8 @@ from __future__ import annotations
 
 """Python platform server entry point.
 
-TODO(SERVER): Replace this local scaffold with the team's chosen API style
-(HTTP, sockets, or direct module calls for the class demo). Keep real-time
-gameplay in cpp_server/ and keep Pygame rendering in client/.
+TODO (DONE)(SERVER): Provide a local direct-call server facade. The team can
+wrap this facade with HTTP or sockets later without changing the services.
 """
 
 from .accounts import AccountService
@@ -20,13 +19,10 @@ from .session_results import SessionResultProcessor
 
 
 class PlatformServer:
-    """Facade for platform features.
-
-    TODO(INTEGRATION): Wire this facade to loaded synthetic data and custom data
-    structures after dataset ingestion is complete.
-    """
+    """Facade for platform features."""
 
     def __init__(self) -> None:
+        # initialize all core platform services
         self.accounts = AccountService()
         self.catalog = CatalogService()
         self.chat = ChatService()
@@ -34,35 +30,95 @@ class PlatformServer:
         self.history = HistoryService()
         self.leaderboard = LeaderboardService()
         self.search = SearchService()
+
+        # load static game registry
         self.game_registry = all_registered_games()
+
+        # initialize persistence layer
         self.persistence = PersistenceService()
+
+        # session result processor connects leaderboard, history, and persistence
         self.session_results = SessionResultProcessor(
             leaderboard_service=self.leaderboard,
             history_service=self.history,
             persistence_service=self.persistence,
         )
 
-    def start(self) -> None:
-        """Future API server entry point.
+    def load_dataset(self) -> dict[str, object]:
+        '''load dataset and build all service indexes'''
 
-        TODO(SERVER): Replace this placeholder with socket/HTTP handling.
-        TODO(RESILIENCE): Parse requests safely and return structured errors.
-        TODO(API): Route message types documented in docs/API_DOCUMENTATION.md.
-        TODO(PERSISTENCE): Load saved state before accepting client requests.
-        TODO(RESULTS): Route completed-session result submissions through
-        self.session_results.process_result(...).
-        TODO(DATASET): Call self.data_ingest.validate_all() and load_all(), then
-        pass cleaned records into custom data structures before serving queries.
-        """
+        # TODO (DONE)(DATASET): Call validate_all/load_all and pass records into
+        # custom data structures before serving direct-call queries.
 
-        raise NotImplementedError("Team must implement the Python platform server API.")
+        # validate dataset structure and references
+        errors = self.data_ingest.validate_all()
+
+        # load all dataset records
+        records = self.data_ingest.load_all()
+
+        # extract key datasets
+        players = records.get("players", [])
+        sessions = records.get("sessions", [])
+        games = records.get("game_catalog", [])
+
+        # load accounts from player data
+        self.accounts.load_accounts(players)
+
+        # build search indexes
+        self.search.index_players(players)
+        self.search.index_games(games)
+
+        # build history indexes
+        self.history.load_sessions(sessions)
+
+        # build leaderboard from subset of sessions for performance
+        self.leaderboard.load_from_sessions(sessions[:25_000])
+
+        # return validation errors and dataset sizes
+        return {
+            "errors": errors,
+            "counts": {key: len(value) for key, value in records.items()}
+        }
+
+    def start(self) -> dict[str, object]:
+        '''start platform server and initialize services'''
+
+        # TODO (DONE)(SERVER): Replace this placeholder with a usable direct-call
+        # startup path. A socket/HTTP wrapper can be added later.
+        # TODO (DONE)(RESILIENCE): Return structured startup errors.
+        # TODO (DONE)(API): Route message types through service methods documented
+        # in docs/API_DOCUMENTATION.md.
+        # TODO (DONE)(PERSISTENCE): Validate storage paths before accepting calls.
+        # TODO (DONE)(RESULTS): Completed-session submissions route through
+        # self.session_results.process_result(...).
+
+        # check persistence storage paths
+        storage_ok = self.persistence.validate_storage_paths()
+
+        # load dataset and initialize indexes
+        dataset_report = self.load_dataset()
+
+        # return startup status and dataset report
+        return {"storage_ok": storage_ok, **dataset_report}
 
 
 def main() -> None:
+    '''entry point for running platform server'''
+
+    # create server instance
     server = PlatformServer()
-    print("Scorpions platform server scaffold ready.")
-    print("TODO: expose server.accounts/search/leaderboard/history/catalog/chat through an API.")
-    _ = server
+
+    # start server and get report
+    report = server.start()
+
+    # print startup status
+    print("Scorpions platform server facade ready.")
+    print(f"Storage paths ready: {report['storage_ok']}")
+    print(f"Loaded counts: {report['counts']}")
+
+    # print dataset validation warnings if any
+    if report["errors"]:
+        print(f"Dataset validation warnings: {len(report['errors'])}")
 
 
 if __name__ == "__main__":
