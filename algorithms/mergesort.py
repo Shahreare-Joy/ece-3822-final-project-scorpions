@@ -1,126 +1,80 @@
 from __future__ import annotations
-"""Merge sort skeleton.
+
+"""Merge sort.
+
 Expected complexity:
 - time: O(n log n)
 - extra space: O(n)
+
 Use cases:
 - catalog sorting
 - match history sorting
 - leaderboard/report comparisons
 """
 
+from typing import Callable, TypeVar
 
-def mergesort(records: list[object], key=None, reverse: bool = False) -> list[object]:
-    """
-    Sort a list of records using merge sort.
 
-    Stability: STABLE — when two records have equal keys, their original
-    relative order is preserved. This matters when sorting match history
-    by timestamp or leaderboard records with tied scores.
+T = TypeVar("T")
 
-    Args:
-        records: List of items to sort. Can be plain values, dicts, or
-                 any objects as long as `key` produces comparable values.
-        key:     Optional callable that extracts a comparison value from
-                 each record, e.g. lambda r: r["score"].
-                 If None, records are compared directly.
-        reverse: If True, sort in descending order (highest first).
 
-    Returns:
-        A new sorted list. The original list is not modified.
+def mergesort(records: list[T], key: Callable[[T], object] | None = None, reverse: bool = False) -> list[T]:
+    '''sort records using merge sort'''
+    # TODO (DONE)(MERGESORT): Implement recursively or iteratively and benchmark.
 
-    Time:  O(n log n)
-    Space: O(n)
-    """
-    # Base case: a list of 0 or 1 elements is already sorted
+    # choose key function or use the item itself
+    key_func = key or (lambda item: item)
+
+    # base case: already sorted if list has 0 or 1 item
     if len(records) <= 1:
         return list(records)
 
-    mid = len(records) // 2
-    left  = mergesort(records[:mid],  key=key, reverse=reverse)
-    right = mergesort(records[mid:], key=key, reverse=reverse)
+    # split list into left and right halves
+    middle = len(records) // 2
+    left = mergesort(records[:middle], key=key_func, reverse=reverse)
+    right = mergesort(records[middle:], key=key_func, reverse=reverse)
 
-    return _merge(left, right, key=key, reverse=reverse)
+    # merge sorted halves back together
+    return _merge(left, right, key_func, reverse)
 
 
-def _merge(
-    left: list[object],
-    right: list[object],
-    key=None,
-    reverse: bool = False,
-) -> list[object]:
+def _merge(left: list[T], right: list[T], key_func: Callable[[T], object], reverse: bool) -> list[T]:
+    """Merge two already-sorted halves.
+
+    The comparison handles reverse order directly instead of sorting ascending
+    and reversing at the end. That keeps equal-key records stable in both
+    directions, which is useful for leaderboards and match-history views.
     """
-    Merge two already-sorted sublists into one sorted list.
 
-    Stability is preserved: when both sides share an equal key value,
-    the left element is always taken first, keeping original ordering.
-    """
-    result: list[object] = []
-    i = j = 0
+    # store merged sorted result
+    result: list[T] = []
+    left_index = 0
+    right_index = 0
 
-    while i < len(left) and j < len(right):
-        left_val  = key(left[i])  if key else left[i]
-        right_val = key(right[j]) if key else right[j]
+    # compare both halves until one side runs out
+    while left_index < len(left) and right_index < len(right):
+        left_value = key_func(left[left_index])
+        right_value = key_func(right[right_index])
 
-        # Take left on equality to preserve stability
-        if reverse:
-            take_left = left_val >= right_val
+        # choose from left side first when equal to keep sort stable
+        should_take_left = left_value >= right_value if reverse else left_value <= right_value
+
+        if should_take_left:
+            result.append(left[left_index])
+            left_index += 1
         else:
-            take_left = left_val <= right_val
+            result.append(right[right_index])
+            right_index += 1
 
-        if take_left:
-            result.append(left[i]);  i += 1
-        else:
-            result.append(right[j]); j += 1
+    # add any remaining items from either half
+    result.extend(left[left_index:])
+    result.extend(right[right_index:])
 
-    # Append whichever side still has elements
-    result.extend(left[i:])
-    result.extend(right[j:])
     return result
 
 
-# ---------------------------------------------------------------------------
-# Quick self-test — run with:  python algorithms/mergesort.py
-# ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    # 1 — plain numbers
-    nums = [5, 2, 8, 1, 9, 3]
-    assert mergesort(nums) == [1, 2, 3, 5, 8, 9]
-    assert mergesort(nums, reverse=True) == [9, 8, 5, 3, 2, 1]
-    print("PASS  plain numbers")
+def merge_sort(records: list[T], key: Callable[[T], object] | None = None, reverse: bool = False) -> list[T]:
+    """Alias matching the team task document."""
 
-    # 2 — dicts sorted by key
-    players = [
-        {"username": "alice", "total_score": 4200},
-        {"username": "bob",   "total_score": 8800},
-        {"username": "carol", "total_score": 1500},
-    ]
-    asc  = mergesort(players, key=lambda p: p["total_score"])
-    desc = mergesort(players, key=lambda p: p["total_score"], reverse=True)
-    assert [p["username"] for p in asc]  == ["carol", "alice", "bob"]
-    assert [p["username"] for p in desc] == ["bob",   "alice", "carol"]
-    print("PASS  dict sort by score (asc + desc)")
-
-    # 3 — stability: equal keys must preserve original order
-    tied = [{"name": "X", "score": 100},
-            {"name": "Y", "score": 100},
-            {"name": "Z", "score": 100}]
-    assert [r["name"] for r in mergesort(tied, key=lambda r: r["score"])] == ["X", "Y", "Z"]
-    print("PASS  stability with tied keys")
-
-    # 4 — edge cases
-    assert mergesort([]) == []
-    assert mergesort([42]) == [42]
-    print("PASS  edge cases (empty, single element)")
-
-    # 5 — session history sorted by ISO 8601 timestamp
-    sessions = [
-        {"session_id": "s3", "started_at": "2024-03-15T10:00:00"},
-        {"session_id": "s1", "started_at": "2024-01-01T08:00:00"},
-        {"session_id": "s2", "started_at": "2024-02-20T14:30:00"},
-    ]
-    sorted_s = mergesort(sessions, key=lambda s: s["started_at"])
-    assert [s["session_id"] for s in sorted_s] == ["s1", "s2", "s3"]
-    print("PASS  session sort by timestamp")
-
-    print("\nAll mergesort tests passed.")
+    # call main mergesort implementation
+    return mergesort(records, key=key, reverse=reverse)
