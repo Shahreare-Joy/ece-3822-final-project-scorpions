@@ -10,9 +10,9 @@ class ScreenName(str, Enum):
     HOME = "home"
     BROWSE = "browse"
     GAME_DETAILS = "game_details"
+    SESSION_CHAT = "session_chat"
     PROFILE = "profile"
     LEADERBOARD = "leaderboard"
     HISTORY = "history"
     SEARCH = "search"
     SETTINGS = "settings"
-

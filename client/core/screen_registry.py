@@ -13,6 +13,7 @@ from client.screens import (
     LoginScreen,
     ProfileScreen,
     SearchPlayersScreen,
+    SessionChatScreen,
     SettingsScreen,
     WelcomeScreen,
 )
@@ -32,10 +33,10 @@ def create_screens(app: ArcadeApp) -> dict[ScreenName, BaseScreen]:
         ScreenName.HOME: HomeScreen(app),
         ScreenName.BROWSE: BrowseScreen(app),
         ScreenName.GAME_DETAILS: GameDetailsScreen(app),
+        ScreenName.SESSION_CHAT: SessionChatScreen(app),
         ScreenName.PROFILE: ProfileScreen(app),
         ScreenName.LEADERBOARD: LeaderboardScreen(app),
         ScreenName.HISTORY: HistoryScreen(app),
         ScreenName.SEARCH: SearchPlayersScreen(app),
         ScreenName.SETTINGS: SettingsScreen(app),
     }
-
