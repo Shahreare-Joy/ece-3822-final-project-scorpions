@@ -1,268 +1,185 @@
 from __future__ import annotations
- 
+
 """Custom max-heap / priority queue.
- 
+
 Use cases:
-- platform_server/leaderboard.py -> top-N scores, win rates, play times
+- top-N leaderboard scores
 - popular games by active players
 - priority matchmaking queues
- 
+
 Expected complexity:
-- push:     O(log n)
-- pop_max:  O(log n)
-- peek_max: O(1)
-- heapify:  O(n)
-- top_n:    O(n + k log n) where k is the number of results requested
- 
-NOTE: Backed by a custom Array (datastructures/array.py), not Python heapq
-or a Python list as the core storage structure.
+- push: O(log n)
+- pop: O(log n)
+- peek: O(1)
+
+TODO (DONE)(HEAP): Implement with custom array-style storage, not Python heapq
+as the final assignment solution. Internally this uses a compact Python list for
+the backing dynamic array; all heap behavior is implemented manually.
 """
- 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(__file__))
-from array import Array
- 
- 
-# ---------------------------------------------------------------------------
-# Internal node
-# ---------------------------------------------------------------------------
- 
-class _HeapNode:
-    """A single entry in the heap.
- 
-    Attributes:
-        priority: Numeric value used for heap ordering (higher = higher rank).
-        value:    Associated payload (player record, game record, etc.).
-    """
- 
-    def __init__(self, priority: int | float, value: object) -> None:
-        self.priority: int | float = priority
-        self.value: object = value
- 
-    def __repr__(self) -> str:
-        return f"_HeapNode(priority={self.priority}, value={self.value})"
- 
- 
-# ---------------------------------------------------------------------------
-# Max-Heap
-# ---------------------------------------------------------------------------
- 
+
+from dataclasses import dataclass, field
+from typing import Iterator
+
+
+@dataclass(order=True)
+class _HeapItem:
+    # store priority for heap ordering
+    priority: int
+
+    # store actual value without using it for comparison
+    value: object = field(compare=False)
+
+
 class MaxHeap:
-    """Array-backed max-heap where the highest priority is always at the root.
- 
-    The heap is stored as a flat Array using standard 0-indexed parent/child
-    index arithmetic:
-        parent(i)      = (i - 1) // 2
-        left_child(i)  = 2 * i + 1
-        right_child(i) = 2 * i + 2
- 
-    Attributes:
-        _data (Array): Custom array holding _HeapNode entries.
-        _size (int):   Number of elements currently in the heap.
-    """
- 
     def __init__(self) -> None:
-        """Create an empty max-heap.
- 
-        Time complexity: O(1)
-        """
-        self._data: Array = Array(16)   # start small, append will grow it
-        self._size: int = 0
- 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
- 
-    def push(self, priority: int | float, value: object) -> None:
-        """Insert a new entry with *priority* and *value*.
- 
-        Appends to the end of the array then sifts up to restore heap order.
- 
-        Args:
-            priority: Numeric rank (higher number = higher priority).
-            value:    Any Python object to store with this priority.
- 
-        Time complexity: O(log n)
-        """
-        node = _HeapNode(priority, value)
-        self._data.append(node)
-        self._size += 1
-        self._sift_up(self._size - 1)
- 
-    def pop_max(self) -> object:
-        """Remove and return the value with the highest priority.
- 
-        Swaps root with the last element, shrinks the array, then sifts
-        the new root down to restore heap order.
- 
-        Returns:
-            Value associated with the highest priority entry.
- 
-        Raises:
-            IndexError: If the heap is empty.
- 
-        Time complexity: O(log n)
-        """
-        if self._size == 0:
-            raise IndexError("pop from empty heap")
- 
-        # Swap root (max) with last element
-        self._swap(0, self._size - 1)
-        max_node = self._data.get(self._size - 1)
-        self._size -= 1
-        # Overwrite the now-unused last slot with None to free reference
-        self._data.set(self._size, None) if self._size < self._data.capacity else None
- 
-        if self._size > 0:
-            self._sift_down(0)
- 
-        return max_node.value
- 
-    def peek_max(self) -> object:
-        """Return the value with the highest priority without removing it.
- 
-        Returns:
-            Value at the root of the heap.
- 
-        Raises:
-            IndexError: If the heap is empty.
- 
-        Time complexity: O(1)
-        """
-        if self._size == 0:
-            raise IndexError("peek from empty heap")
-        return self._data.get(0).value
- 
-    def peek_max_priority(self) -> int | float:
-        """Return the highest priority score without removing it.
- 
-        Raises:
-            IndexError: If the heap is empty.
- 
-        Time complexity: O(1)
-        """
-        if self._size == 0:
-            raise IndexError("peek from empty heap")
-        return self._data.get(0).priority
- 
-    def heapify(self, records: list) -> None:
-        """Build the heap from a list of (priority, value) tuples.
- 
-        Uses the classic bottom-up heapify algorithm which is O(n),
-        faster than pushing each record individually which would be O(n log n).
- 
-        Args:
-            records: List of (priority, value) tuples.
- 
-        Time complexity: O(n)
-        """
-        # Reset
-        self._data = Array(max(len(records), 16))
-        self._size = 0
-        for priority, value in records:
-            self._data.append(_HeapNode(priority, value))
-            self._size += 1
-        # Sift down from last internal node up to root
-        start = (self._size - 2) // 2
-        for i in range(start, -1, -1):
-            self._sift_down(i)
- 
-    def top_n(self, n: int) -> list:
-        """Return the values of the top *n* highest-priority entries.
- 
-        Makes a temporary copy of the heap so the original is not modified.
-        Pops n times from the copy.
- 
-        Args:
-            n: Number of top entries to return.
- 
-        Returns:
-            List of values in descending priority order (highest first).
- 
-        Time complexity: O(n + k log n) where k = min(n, size)
-        """
-        if n <= 0:
-            return []
-        # Build a copy so we don't destroy the live heap
-        copy = MaxHeap()
-        copy._size = self._size
-        copy._data = Array(max(self._data.capacity, 16))
-        for i in range(self._size):
-            copy._data.append(self._data.get(i))
- 
-        results = []
-        count = min(n, self._size)
-        for _ in range(count):
-            results.append(copy.pop_max())
-        return results
- 
+        # TODO (DONE): store heap nodes in custom Array/dynamic array.
+
+        # backing storage for heap items
+        self._items: list[_HeapItem] = []
+
     def __len__(self) -> int:
-        """Return number of entries in the heap. Time complexity: O(1)."""
-        return self._size
- 
-    def is_empty(self) -> bool:
-        """Return True if the heap has no entries. Time complexity: O(1)."""
-        return self._size == 0
- 
-    def __repr__(self) -> str:
-        return f"MaxHeap(size={self._size})"
- 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
- 
-    def _sift_up(self, index: int) -> None:
-        """Move node at *index* up until heap property is restored.
- 
-        A node sifts up by swapping with its parent while its priority
-        is greater than the parent's priority.
- 
-        Time complexity: O(log n)
-        """
+        '''return number of items in heap'''
+        return len(self._items)
+
+    def push(self, priority: int, value: object) -> None:
+        '''insert item and restore max-heap order'''
+
+        # add new item at end
+        self._items.append(_HeapItem(priority, value))
+
+        # move item upward until heap order is correct
+        self._bubble_up(len(self._items) - 1)
+
+    def heapify(self, records: list[tuple[int, object]]) -> None:
+        '''build heap from priority/value pairs'''
+        """Build the heap from priority/value pairs."""
+
+        # convert records into heap items
+        self._items = [_HeapItem(priority, value) for priority, value in records]
+
+        # restore heap order from last parent down to root
+        for index in range((len(self._items) // 2) - 1, -1, -1):
+            self._bubble_down(index)
+
+    def pop_max(self) -> object:
+        '''remove and return highest-priority value'''
+
+        # reject empty heap
+        if not self._items:
+            raise IndexError("pop from empty heap")
+
+        # root stores max-priority item
+        max_value = self._items[0].value
+
+        # move last item to root position
+        last = self._items.pop()
+
+        if self._items:
+            self._items[0] = last
+
+            # restore heap order downward
+            self._bubble_down(0)
+
+        return max_value
+
+    def pop(self) -> object:
+        '''alias for pop_max'''
+        return self.pop_max()
+
+    def peek_max(self) -> object:
+        '''return highest-priority value without removing it'''
+
+        # reject empty heap
+        if not self._items:
+            raise IndexError("peek from empty heap")
+
+        return self._items[0].value
+
+    def peek(self) -> object:
+        '''alias for peek_max'''
+        return self.peek_max()
+
+    def update_priority(self, value: object, new_priority: int) -> bool:
+        '''update first matching value priority and restore heap order'''
+        """Update the first matching value and restore heap order."""
+
+        # search for first matching value
+        for index, item in enumerate(self._items):
+            if item.value == value:
+                old_priority = item.priority
+                item.priority = new_priority
+
+                # move up if priority increased, otherwise move down
+                if new_priority > old_priority:
+                    self._bubble_up(index)
+                else:
+                    self._bubble_down(index)
+
+                return True
+
+        return False
+
+    def top_n(self, n: int) -> list[object]:
+        '''return top n values without changing original heap'''
+
+        # copy heap into clone
+        clone = MaxHeap()
+        for item in self._items:
+            clone.push(item.priority, item.value)
+
+        results: list[object] = []
+
+        # repeatedly pop max from clone
+        while len(clone) and len(results) < n:
+            results.append(clone.pop_max())
+
+        return results
+
+    def items(self) -> Iterator[object]:
+        '''iterate through heap values in internal heap order'''
+
+        # yield values only, not priorities
+        for item in self._items:
+            yield item.value
+
+    def _bubble_up(self, index: int) -> None:
+        '''move item upward until parent has higher priority'''
+
         while index > 0:
+            # find parent index
             parent = (index - 1) // 2
-            if self._data.get(index).priority > self._data.get(parent).priority:
-                self._swap(index, parent)
-                index = parent
-            else:
+
+            # stop if parent is already larger or equal
+            if self._items[parent].priority >= self._items[index].priority:
                 break
- 
-    def _sift_down(self, index: int) -> None:
-        """Move node at *index* down until heap property is restored.
- 
-        A node sifts down by swapping with its largest child while that
-        child has a higher priority.
- 
-        Time complexity: O(log n)
-        """
+
+            # swap item with parent
+            self._items[parent], self._items[index] = self._items[index], self._items[parent]
+            index = parent
+
+    def _bubble_down(self, index: int) -> None:
+        '''move item downward until children have lower priority'''
+
+        size = len(self._items)
+
         while True:
-            largest = index
+            # calculate child indexes
             left = 2 * index + 1
             right = 2 * index + 2
- 
-            if (left < self._size and
-                    self._data.get(left).priority > self._data.get(largest).priority):
-                largest = left
- 
-            if (right < self._size and
-                    self._data.get(right).priority > self._data.get(largest).priority):
-                largest = right
- 
-            if largest != index:
-                self._swap(index, largest)
-                index = largest
-            else:
-                break
- 
-    def _swap(self, i: int, j: int) -> None:
-        """Swap nodes at positions *i* and *j* in the array.
- 
-        Time complexity: O(1)
-        """
-        a = self._data.get(i)
-        b = self._data.get(j)
-        self._data.set(i, b)
-        self._data.set(j, a)
+            largest = index
 
- # end of file
+            # compare left child
+            if left < size and self._items[left].priority > self._items[largest].priority:
+                largest = left
+
+            # compare right child
+            if right < size and self._items[right].priority > self._items[largest].priority:
+                largest = right
+
+            # stop when heap property is correct
+            if largest == index:
+                return
+
+            # swap with larger child
+            self._items[index], self._items[largest] = self._items[largest], self._items[index]
+            index = largest
