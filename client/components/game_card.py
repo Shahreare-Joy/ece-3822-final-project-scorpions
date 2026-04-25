@@ -7,12 +7,15 @@ import pygame
 from client.core.theme import Palette
 from client.models import Game
 from .fonts import FontSet
+from .image_assets import load_image
 from .panel import draw_badge
 from .text import draw_text
 
 
 class GameCard:
     def __init__(self, rect: tuple[int, int, int, int], game: Game, on_click: Callable[[Game], None], fonts: FontSet, compact: bool = False) -> None:
+        
+        # store card layout, game data, click action, fonts, and display mode
         self.rect = pygame.Rect(rect)
         self.game = game
         self.on_click = on_click
@@ -21,6 +24,7 @@ class GameCard:
         self.hovered = False
 
     def handle_event(self, event: pygame.event.Event) -> None:
+        '''handle mouse movement and click events for the card'''
         if event.type == pygame.MOUSEMOTION:
             self.hovered = self.rect.collidepoint(event.pos)
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.rect.collidepoint(event.pos):
@@ -29,7 +33,11 @@ class GameCard:
     def draw(self, surface: pygame.Surface) -> None:
         rect = self.rect.move(0, -2 if self.hovered else 0)
         fill = tuple(min(255, value + 18) for value in self.game.color) if self.hovered else self.game.color
-        pygame.draw.rect(surface, fill, rect, border_radius=8)
+        thumbnail = load_image(self.game.thumbnail_path, (rect.width, rect.height))
+        if thumbnail is not None:
+            surface.blit(thumbnail, rect)
+        else:
+            pygame.draw.rect(surface, fill, rect, border_radius=8)
         pygame.draw.rect(surface, Palette.BORDER, rect, width=2, border_radius=8)
 
         plate_h = 52 if self.compact else 70
