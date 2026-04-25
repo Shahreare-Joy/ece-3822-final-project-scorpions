@@ -13,7 +13,7 @@ class ProfileScreen(BaseScreen):
         player = self.app.current_player
         if player is None:
             return
-        self.page_title("Player Profile", "Profile data is mock data now. Later this screen should read from the real player dataset.")
+        self.page_title("Player Profile", "Your arcade profile, recent sessions, stats, and session chat preview.")
         left = pygame.Rect(30, 178, 480, 230)
         right = pygame.Rect(540, 178, 630, 230)
         draw_panel(self.app.screen, left)
@@ -47,7 +47,7 @@ class ProfileScreen(BaseScreen):
             self.draw_list_row(row, game_name, "", f"{session.result} {session.score:,} pts")
         chat_session_id = player_sessions[0].session_id if player_sessions else "global"
         draw_text(self.app.screen, "Session Chat Preview", self.app.fonts.body, Palette.TEXT, chat.x + 16, chat.y + 14)
-        draw_wrapped(self.app.screen, f"Showing recent messages for session {chat_session_id}. TODO: connect this to C++ session broadcast later.", self.app.fonts.small, Palette.MUTED, pygame.Rect(chat.x + 16, chat.y + 45, chat.width - 32, 44), max_lines=2)
+        draw_wrapped(self.app.screen, f"Recent messages for session {chat_session_id}. Open a game from Browse to use the full session chat.", self.app.fonts.small, Palette.MUTED, pygame.Rect(chat.x + 16, chat.y + 45, chat.width - 32, 44), max_lines=2)
         for index, message in enumerate(self.app.backend.get_chat_preview(chat_session_id)):
             draw_text(self.app.screen, f"[{message.timestamp}] {message.sender}", self.app.fonts.small, Palette.ACCENT, chat.x + 18, chat.y + 100 + index * 42, max_width=220)
             draw_text(self.app.screen, message.text, self.app.fonts.small, Palette.TEXT, chat.x + 250, chat.y + 100 + index * 42, max_width=290)

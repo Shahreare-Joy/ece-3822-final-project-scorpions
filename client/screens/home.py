@@ -31,7 +31,7 @@ class HomeScreen(BaseScreen):
         hero = pygame.Rect(PAGE_PAD, CONTENT_TOP, 760, 82)
         draw_panel(self.app.screen, hero)
         draw_text(self.app.screen, f"Welcome back, {player.display_name if player else 'Player'}", self.app.fonts.heading, Palette.TEXT, hero.x + 20, hero.y + 14, max_width=hero.width - 40)
-        draw_wrapped(self.app.screen, "A platform-style arcade home with saved sessions, old catalog history, and mock live activity.", self.app.fonts.small, Palette.MUTED, pygame.Rect(hero.x + 22, hero.y + 48, hero.width - 44, 28), max_lines=1)
+        draw_wrapped(self.app.screen, "A platform-style arcade home with saved sessions, catalog history, and live-feeling activity.", self.app.fonts.small, Palette.MUTED, pygame.Rect(hero.x + 22, hero.y + 48, hero.width - 44, 28), max_lines=1)
 
         stats_box = pygame.Rect(815, CONTENT_TOP, 355, 82)
         draw_panel(self.app.screen, stats_box)
@@ -44,4 +44,3 @@ class HomeScreen(BaseScreen):
         for card in self.cards:
             card.draw(self.app.screen)
         self.draw_message()
-

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pygame
 
-from client.components import Button, draw_badge, draw_list_row, draw_panel, draw_text, draw_wrapped
+from client.components import Button, draw_badge, draw_list_row, draw_panel, draw_text, draw_wrapped, load_image
 from client.core import Palette, ScreenName
 
 from .base_screen import BaseScreen
@@ -22,26 +22,33 @@ class GameDetailsScreen(BaseScreen):
     def play_game(self) -> None:
         game = self.app.current_game
         if game:
-            # TODO(C++): This reaches the launch hook, but does not start a real session yet.
-            self.app.show_message(self.app.backend.launch_game(self.app.current_player, game), Palette.SUCCESS if game.playable else Palette.WARNING)
+            self.app.navigate(ScreenName.SESSION_CHAT, "Session lobby opened. Chat is available before and after launch.", Palette.SUCCESS)
 
     def draw(self) -> None:
         game = self.app.current_game or self.app.backend.get_game("scorpions-arena")
         if game is None:
             return
-        self.page_title("Game Details", "Every game has a full catalog page. Playable entries go through the launch service, while placeholder entries show a safe status message.")
+        self.page_title("Game Details", "Every game has a full catalog page with status, activity, leaderboard preview, and launch options.")
         art = pygame.Rect(30, 154, 640, 246)
-        pygame.draw.rect(self.app.screen, game.color, art, border_radius=8)
+        art_image = load_image(game.thumbnail_path, (art.width, art.height))
+        if art_image is not None:
+            self.app.screen.blit(art_image, art)
+        else:
+            pygame.draw.rect(self.app.screen, game.color, art, border_radius=8)
         pygame.draw.rect(self.app.screen, Palette.BORDER, art, width=2, border_radius=8)
-        preview = pygame.Rect(art.x + 18, art.y + 18, art.width - 36, 118)
-        pygame.draw.rect(self.app.screen, tuple(max(0, value - 24) for value in game.color), preview, border_radius=8)
-        pygame.draw.rect(self.app.screen, Palette.BORDER, preview, width=1, border_radius=8)
-        draw_text(self.app.screen, "THUMBNAIL / GAME ART", self.app.fonts.tiny, Palette.TEXT, preview.x + 16, preview.y + 12)
-        draw_wrapped(self.app.screen, "Replace this block with a screenshot, sprite scene, or rendered thumbnail.", self.app.fonts.small, Palette.TEXT, pygame.Rect(preview.x + 16, preview.y + 42, preview.width - 32, 54), max_lines=2)
+        if art_image is None:
+            preview = pygame.Rect(art.x + 18, art.y + 18, art.width - 36, 118)
+            pygame.draw.rect(self.app.screen, tuple(max(0, value - 24) for value in game.color), preview, border_radius=8)
+            pygame.draw.rect(self.app.screen, Palette.BORDER, preview, width=1, border_radius=8)
+            draw_text(self.app.screen, "THUMBNAIL / GAME ART", self.app.fonts.tiny, Palette.TEXT, preview.x + 16, preview.y + 12)
+            draw_wrapped(self.app.screen, "Season preview art and screenshot area for the selected arcade game.", self.app.fonts.small, Palette.TEXT, pygame.Rect(preview.x + 16, preview.y + 42, preview.width - 32, 54), max_lines=2)
+        overlay = pygame.Surface((art.width, 92), pygame.SRCALPHA)
+        overlay.fill((12, 16, 24, 185))
+        self.app.screen.blit(overlay, (art.x, art.bottom - 92))
         draw_text(self.app.screen, game.title, self.app.fonts.heading, Palette.TEXT, art.x + 22, 300, max_width=art.width - 44)
         draw_text(self.app.screen, f"Last updated: {game.last_updated}", self.app.fonts.small, Palette.TEXT, art.x + 24, art.bottom - 62, max_width=art.width - 220)
         draw_text(self.app.screen, game.activity_note, self.app.fonts.small, Palette.TEXT, art.x + 24, art.bottom - 38, max_width=art.width - 220)
-        draw_badge(self.app.screen, "PLAYABLE NOW" if game.playable else "PLACEHOLDER", pygame.Rect(art.right - 166, art.bottom - 44, 140, 28), self.app.fonts.small, Palette.SUCCESS if game.playable else Palette.WARNING)
+        draw_badge(self.app.screen, "PLAYABLE NOW" if game.playable else "NOT CONNECTED", pygame.Rect(art.right - 166, art.bottom - 44, 140, 28), self.app.fonts.small, Palette.SUCCESS if game.playable else Palette.WARNING)
 
         panel = pygame.Rect(700, 154, 470, 216)
         draw_panel(self.app.screen, panel)
@@ -74,7 +81,7 @@ class GameDetailsScreen(BaseScreen):
         draw_text(self.app.screen, "Recent Activity / Sessions", self.app.fonts.body, Palette.TEXT, activity.x + 16, activity.y + 14)
         sessions = self.app.backend.get_sessions(game_id=game.game_id, limit=5)
         if not sessions:
-            draw_wrapped(self.app.screen, "No mock sessions for this game yet. Add real session data after the C++ integration.", self.app.fonts.small, Palette.MUTED, pygame.Rect(activity.x + 18, activity.y + 54, activity.width - 36, 80))
+            draw_wrapped(self.app.screen, "No recent public sessions yet. Check back after this game receives live match activity.", self.app.fonts.small, Palette.MUTED, pygame.Rect(activity.x + 18, activity.y + 54, activity.width - 36, 80))
         for index, session in enumerate(sessions):
             player = self.app.backend.get_player(session.username)
             name = player.display_name if player else session.username

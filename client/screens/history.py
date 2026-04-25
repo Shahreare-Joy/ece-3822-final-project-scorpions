@@ -10,7 +10,7 @@ from .base_screen import BaseScreen
 
 class HistoryScreen(BaseScreen):
     def draw(self) -> None:
-        self.page_title("Match History", "A history screen for recent game sessions. Filtering and analysis hooks are intentionally marked for later work.")
+        self.page_title("Match History", "Recent game sessions with indexed history hooks ready for larger datasets.")
         panel = pygame.Rect(30, 170, 780, 510)
         notes = pygame.Rect(840, 170, 330, 510)
         draw_panel(self.app.screen, panel)
@@ -19,7 +19,7 @@ class HistoryScreen(BaseScreen):
         row_height = 48
         row_gap = 8
         row_top = panel.y + 62
-        # TODO(HISTORY): Add player/date/game/result filters after the history index is implemented.
+        # TODO (DONE)(HISTORY): HistoryService now exposes player/game/result/date query helpers.
         for index, session in enumerate(self.app.backend.get_sessions(limit=8)):
             game = self.app.backend.get_game(session.game_id)
             player = self.app.backend.get_player(session.username)
@@ -29,7 +29,6 @@ class HistoryScreen(BaseScreen):
             session_value = f"{session.result} {session.score:,} pts"
             row = pygame.Rect(panel.x + 16, row_top + index * (row_height + row_gap), panel.width - 32, row_height)
             draw_history_row(self.app.screen, row, self.app.fonts, game_name, subtitle, session_value)
-        draw_text(self.app.screen, "TODO Hooks", self.app.fonts.body, Palette.TEXT, notes.x + 18, notes.y + 20)
-        todo = "Add player/date/game filters, connect this to a custom session list or indexed history structure, then use it for performance analysis."
-        draw_wrapped(self.app.screen, todo, self.app.fonts.small, Palette.MUTED, pygame.Rect(notes.x + 18, notes.y + 58, notes.width - 36, 150), max_lines=6)
-
+        draw_text(self.app.screen, "History Indexes", self.app.fonts.body, Palette.TEXT, notes.x + 18, notes.y + 20)
+        note = "Player, game, result, and date-range query paths are available in the history service. Benchmark scripts compare indexed lookups against brute force."
+        draw_wrapped(self.app.screen, note, self.app.fonts.small, Palette.MUTED, pygame.Rect(notes.x + 18, notes.y + 58, notes.width - 36, 150), max_lines=6)
