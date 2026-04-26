@@ -11,6 +11,9 @@ from .circular_buffer import CircularBuffer
 from .graph import Edge, Graph
 from .hash_table import ChainedHashTable
 from .heap import MaxHeap
+from .linked_list import LinkedList
+from .linked_queue import LinkedQueue
+from .linked_stack import LinkedStack
 
 __all__ = [
     "Array",
@@ -19,5 +22,8 @@ __all__ = [
     "CircularBuffer",
     "Edge",
     "Graph",
+    "LinkedList",
+    "LinkedQueue",
+    "LinkedStack",
     "MaxHeap",
 ]
