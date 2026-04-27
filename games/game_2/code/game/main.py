@@ -7,9 +7,16 @@ Integrated version combining lab-03 and project-01
 import pygame
 import sys
 import argparse
+import os
 from settings import *
 from level import Level
 from subcharacter import get_all_character_classes
+
+try:
+    from client.components import ChatOverlay, ChatOverlayConfig
+except Exception:
+    ChatOverlay = None
+    ChatOverlayConfig = None
 
 class Button:
     def __init__(self, x, y, width, height, fg, bg, content, fontsize):
@@ -163,6 +170,25 @@ class Game:
         self.selected_character = None
         self.level = None
         self.running = True
+        self.chat_overlay = self.create_chat_overlay()
+
+    def create_chat_overlay(self):
+        """Create the optional Scorpions Arcade chat overlay.
+
+        The arcade launcher sets PYTHONPATH plus SCORPIONS_* environment values
+        before starting this game. If the game is run directly without the
+        arcade, the overlay quietly stays disabled and gameplay still works.
+        Other team games can copy this small method plus the event/draw calls.
+        """
+        if ChatOverlay is None or ChatOverlayConfig is None:
+            return None
+        if os.environ.get("SCORPIONS_CHAT_ENABLED") != "1":
+            return None
+        session_id = os.environ.get("SCORPIONS_SESSION_ID", "fruit-drop-rush-local")
+        sender = os.environ.get("SCORPIONS_DISPLAY_NAME") or self.player_name
+        title = os.environ.get("SCORPIONS_CHAT_TITLE", "Fruit Drop Rush Chat")
+        storage_dir = os.environ.get("SCORPIONS_CHAT_DIR", "")
+        return ChatOverlay(ChatOverlayConfig(session_id=session_id, sender_name=sender, title=title, storage_dir=storage_dir))
 
     def character_select(self):
         """Character selection screen"""
@@ -199,6 +225,8 @@ class Game:
         
         while char_select:
             for event in pygame.event.get():
+                if self.chat_overlay and self.chat_overlay.handle_event(event):
+                    continue
                 if event.type == pygame.QUIT:
                     char_select = False
                     self.running = False
@@ -258,6 +286,9 @@ class Game:
             
             # Draw network info
             self.screen.blit(network_info, network_info_rect)
+            if self.chat_overlay:
+                self.chat_overlay.update(self.clock.get_time())
+                self.chat_overlay.draw(self.screen)
             
             self.clock.tick(FPS)
             pygame.display.update()
@@ -283,6 +314,8 @@ class Game:
         while self.running:
             events = []
             for event in pygame.event.get():
+                if self.chat_overlay and self.chat_overlay.handle_event(event):
+                    continue
                 events.append(event)
                 if event.type == pygame.QUIT:
                     self.level.network.disconnect()
@@ -296,6 +329,9 @@ class Game:
 
             self.screen.fill('black')
             self.level.run(events)
+            if self.chat_overlay:
+                self.chat_overlay.update(self.clock.get_time())
+                self.chat_overlay.draw(self.screen)
             pygame.display.update()
             self.clock.tick(FPS)
 
