@@ -140,11 +140,11 @@ def generate_game_catalog(rng: random.Random, count: int) -> list[dict[str, obje
 
     # fixed team games shown first in catalog
     team_games = [
-        ("game_1", "Fruit Drop Rush", "Team Member 1", "Arcade"),
-        ("game_2", "Escape the City", "Team Member 2", "Action"),
-        ("game_3", "Forgotten", "Team Member 3", "Strategy"),
-        ("game_4", "Mystical Bamboo", "Team Member 4", "Puzzle"),
-        ("game_5", "Game 5 Snake Test", "Team Scorpions", "Arcade"),
+        ("game_1", "Fruit Collection", "ECE 3822 Team Scorpions", "Arcade"),
+        ("game_2", "Escape the City", "ECE 3822 Team Scorpions", "Action"),
+        ("game_3", "Forgotten", "ECE 3822 Team Scorpions", "Adventure"),
+        ("game_4", "Mystical Bamboo", "ECE 3822 Team Scorpions", "Platformer"),
+        ("game_5", "Snake Lab", "Team Scorpions", "Arcade"),
     ]
 
     # project root used to check whether launch files exist
@@ -182,8 +182,8 @@ def generate_game_catalog(rng: random.Random, count: int) -> list[dict[str, obje
                 "min_players": 1,
                 "max_players": rng.randint(1, 8),
                 "supports_multiplayer": game_id not in ("game_1", "game_5"),
-                "status": "TEMP TEST GAME - Safe to delete later" if game_id == "game_5" else ("Playable now" if playable else "Pending integration"),
-                "tags": ["temp-test-game", genre.lower(), "safe-to-delete"] if game_id == "game_5" else ["team-game", genre.lower(), "folder-convention"],
+                "status": "Local fallback available" if game_id == "game_5" else ("Playable now" if playable else "Not connected yet"),
+                "tags": ["arcade", "fallback"] if game_id == "game_5" else ["team-game", genre.lower(), "folder-convention"],
             }
         )
 
@@ -219,7 +219,7 @@ def generate_game_catalog(rng: random.Random, count: int) -> list[dict[str, obje
                 "min_players": 1,
                 "max_players": rng.randint(1, 10),
                 "supports_multiplayer": rng.choice([True, False]),
-                "status": "Catalog placeholder",
+                "status": "Not connected yet",
                 "tags": ["student-game", genre.lower(), "synthetic"],
             }
         )
