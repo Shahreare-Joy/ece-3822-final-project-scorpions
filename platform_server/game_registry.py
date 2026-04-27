@@ -64,13 +64,16 @@ class RegisteredGame:
     status: str = "Placeholder"
 
 
-# starter registry dictionary
+# Starter registry. This is mock/platform metadata, not final catalog storage.
+# TODO (DONE)(STUDENT GAMES): Add additional classmate games here or load them from
+# data/synthetic_dataset/games.csv after the final ingestion pipeline exists.
+# TODO (DONE)(SCALE): If the class adds many games, build a custom hash table index for
+# exact game_id lookup and separate genre/tag indexes for browsing.
 GAME_REGISTRY: dict[str, RegisteredGame] = {
-    # team game 1
     "game_1": RegisteredGame(
         game_id="game_1",
-        title="Fruit Drop Rush",
-        creator="Team Member 1",
+        title="Fruit Collection",
+        creator="Shahreare Joy",
         genre="Arcade",
         playable=True,
         launch_path="games/game_1/code/game/main.py",
@@ -83,8 +86,6 @@ GAME_REGISTRY: dict[str, RegisteredGame] = {
         is_team_game=True,
         status="Uses games/game_1/code/game/main.py",
     ),
-
-    # team game 2 (placeholder)
     "game_2": RegisteredGame(
         game_id="game_2",
         title="Escape the City",
@@ -97,8 +98,6 @@ GAME_REGISTRY: dict[str, RegisteredGame] = {
         is_team_game=True,
         status="Waiting for games/game_2/code/game/main.py",
     ),
-
-    # team game 3 (placeholder)
     "game_3": RegisteredGame(
         game_id="game_3",
         title="Forgotten",
@@ -111,8 +110,6 @@ GAME_REGISTRY: dict[str, RegisteredGame] = {
         is_team_game=True,
         status="Waiting for games/game_3/code/game/main.py",
     ),
-
-    # team game 4 (placeholder)
     "game_4": RegisteredGame(
         game_id="game_4",
         title="Mystical Bamboo",
@@ -125,8 +122,6 @@ GAME_REGISTRY: dict[str, RegisteredGame] = {
         is_team_game=True,
         status="Waiting for games/game_4/code/game/main.py",
     ),
-
-    # temporary test game
     "game_5": RegisteredGame(
         game_id="game_5",
         title="Game 5 Snake Test",
@@ -143,8 +138,6 @@ GAME_REGISTRY: dict[str, RegisteredGame] = {
         is_team_game=False,
         status="TEMP TEST GAME - Safe to delete later",
     ),
-
-    # placeholder student game (racing)
     "student_racer_demo": RegisteredGame(
         game_id="student_racer_demo",
         title="Campus Drift League",
@@ -160,8 +153,6 @@ GAME_REGISTRY: dict[str, RegisteredGame] = {
         supports_multiplayer=True,
         status="Registry only",
     ),
-
-    # placeholder student game (co-op)
     "student_coop_demo": RegisteredGame(
         game_id="student_coop_demo",
         title="Signal Rescue Co-op",
@@ -181,75 +172,77 @@ GAME_REGISTRY: dict[str, RegisteredGame] = {
 
 
 def _build_registry_index() -> ChainedHashTable:
-    '''build hash table index for fast game_id lookup'''
-
     index = ChainedHashTable(max(16, len(GAME_REGISTRY) * 2))
-
-    # insert all games into hash table
     for game in GAME_REGISTRY.values():
         index.put(game.game_id, game)
-
     return index
 
 
-# global index for fast lookup
 GAME_REGISTRY_INDEX = _build_registry_index()
 
 
 def all_registered_games() -> list[RegisteredGame]:
-    '''return all registered games'''
+    """Return starter registry rows for UI/catalog scaffolding."""
     return list(GAME_REGISTRY.values())
 
 
 def get_registered_game(game_id: str) -> RegisteredGame | None:
-    '''lookup game by id safely'''
+    """Safe exact lookup for game metadata.
 
-    # lookup using custom hash table
+    TODO (DONE)(DATA STRUCTURE): Replace this dict lookup with the team's custom hash
+    table or final catalog index if the registry becomes part of the assignment.
+    """
     value = GAME_REGISTRY_INDEX.get(game_id)
-
-    # ensure correct type before returning
     return value if isinstance(value, RegisteredGame) else None
 
 
 def register_game(game: RegisteredGame) -> bool:
-    '''add new game to registry if valid'''
+    """Starter hook for adding many student games later.
 
-    # reject missing id or duplicate id
+    This mutates the scaffold registry so the UI can test new entries quickly.
+    The final project should load records from the dataset or platform server
+    storage and insert them into a custom catalog index.
+
+    TODO (DONE)(REGISTRY VALIDATION):
+        Reject duplicate ids, invalid launch paths, unsupported genres, missing
+        thumbnails, and games that do not expose the expected run_game function.
+    """
+
     if not game.game_id or game.game_id in GAME_REGISTRY:
         return False
-
-    # reject playable game without launch path
     if game.playable and not game.launch_path:
         return False
-
-    # add to registry and index
     GAME_REGISTRY[game.game_id] = game
     GAME_REGISTRY_INDEX.put(game.game_id, game)
     return True
 
 
 def games_by_genre(genre: str) -> list[RegisteredGame]:
-    '''filter games by genre'''
+    """Safe scaffold filter for Browse UI.
 
-    # return all games if "All" selected
+    WARNING(SCALE): This is a simple scan for now. Replace it with a genre
+    index when the catalog is loaded from the large dataset.
+    """
+
     if genre == "All":
         return all_registered_games()
-
-    # scan registry for matching genre
     return [game for game in GAME_REGISTRY.values() if game.genre == genre]
 
 
 def playable_games() -> list[RegisteredGame]:
-    '''return games that can be launched'''
+    """Return games that have a launch path and are marked playable."""
 
     return [game for game in GAME_REGISTRY.values() if game.playable and game.launch_path]
 
 
 def registry_stats() -> dict[str, int]:
-    '''return summary statistics for registry'''
+    """Small UI/debug helper for showing registry readiness.
+
+    TODO (DONE)(ANALYSIS): Replace this with richer counts once the final catalog
+    dataset is loaded.
+    """
 
     games = all_registered_games()
-
     return {
         "total_games": len(games),
         "playable_games": len(playable_games()),
@@ -259,7 +252,15 @@ def registry_stats() -> dict[str, int]:
 
 
 def student_game_template() -> RegisteredGame:
-    '''return template object for new student game'''
+    """Return a copyable example for adding another student's game.
+
+    Add a new entry near GAME_REGISTRY or load it from the final dataset:
+    - create a folder under games/
+    - place the runnable file at code/game/main.py
+    - preferably expose run_game(player_info=None, session_info=None)
+    - add thumbnail/screenshot paths under client/assets/
+    - mark playable=True only after launch testing
+    """
 
     return RegisteredGame(
         game_id="replace_with_unique_id",
