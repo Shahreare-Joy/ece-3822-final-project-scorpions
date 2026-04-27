@@ -5,6 +5,7 @@ Integrated version combining lab-03 and project-01
 """
 
 import pygame
+import random
 from settings import *
 from tile import Tile
 from map_loader import load_layer
@@ -19,8 +20,31 @@ from datastructures.patrol_path import PatrolPath
 from weapon import Weapon as WeaponSprite
 import sys
 
+
+class FruitSprite(pygame.sprite.Sprite):
+    """Collectible fruit placed on the existing map.
+
+    The sprite is intentionally simple and self-contained so it does not alter
+    the uploaded map, character, inventory, or enemy systems.
+    """
+
+    def __init__(self, pos, groups, golden=False):
+        super().__init__(groups)
+        self.golden = golden
+        self.points = GOLDEN_FRUIT_POINTS if golden else NORMAL_FRUIT_POINTS
+
+        self.image = pygame.Surface((34, 34), pygame.SRCALPHA)
+        if golden:
+            pygame.draw.circle(self.image, (255, 209, 67), (17, 18), 13)
+            pygame.draw.circle(self.image, (255, 244, 172), (12, 12), 5)
+        else:
+            pygame.draw.circle(self.image, (230, 67, 78), (17, 18), 12)
+            pygame.draw.circle(self.image, (255, 125, 121), (12, 13), 4)
+        pygame.draw.ellipse(self.image, (74, 171, 93), pygame.Rect(17, 4, 12, 7))
+
+        self.rect = self.image.get_rect(center=pos)
 class Level:
-    def __init__(self, player_name, character_class, server_host='localhost', server_port=8080, serializer='text'):
+    def __init__(self, player_name, character_class, server_host='localhost', server_port=DEFAULT_PORT, serializer='text'):
         # Get the display surface
         self.display_surface = pygame.display.get_surface()
 
@@ -36,6 +60,7 @@ class Level:
         self.visible_sprites = YSortCameraGroup()
         self.floor_sprites = pygame.sprite.Group()
         self.obstacle_sprites = pygame.sprite.Group()
+        self.fruit_sprites = pygame.sprite.Group()
 
 
         # Store character class for player creation
@@ -45,7 +70,7 @@ class Level:
         self.create_map()
 
         # Network setup with serializer
-        self.network = NetworkClient(player_name, server_host, server_port, serializer)
+        self.network = NetworkClient(player_name, server_host, normalize_server_port(server_port), serializer)
         self.connected = self.network.connect()
 
         # Track other players
@@ -73,6 +98,16 @@ class Level:
         # Enemy system (Lab 5)
         self.enemies = pygame.sprite.Group()
         self.create_enemies()
+
+        # Fruit Collection round state. These values are read by main.py for
+        # the game-over screen and final arcade session-result payload.
+        self.score = 0
+        self.fruits_collected = 0
+        self.golden_fruits_collected = 0
+        self.round_started_at = pygame.time.get_ticks()
+        self.game_over = False
+        self.game_over_reason = ""
+        self.create_fruits()
 
         # Debug mode for showing enemy paths
         self.show_enemy_debug = False
@@ -279,6 +314,108 @@ class Level:
             print("Check your Waypoint and PatrolPath implementations!")
 
     # ------------------------------------------------------------------
+    # Fruit Collection rules
+    # ------------------------------------------------------------------
+
+    def create_fruits(self):
+        """Seed the map with collectible fruit.
+
+        Fruits use the existing camera/sprite system and are collected when the
+        player walks into them. Golden fruit is rare and worth more points.
+        """
+
+        for _ in range(STARTING_FRUIT_COUNT):
+            self.spawn_fruit()
+
+    def spawn_fruit(self):
+        """Place one fruit on a walkable tile without changing the map."""
+
+        if not WORLD_MAP:
+            return
+
+        for _ in range(80):
+            row_index = random.randrange(len(WORLD_MAP))
+            col_index = random.randrange(len(WORLD_MAP[row_index]))
+            tile = WORLD_MAP[row_index][col_index]
+
+            if tile == 'x':
+                continue
+
+            x = col_index * TILESIZE + TILESIZE // 2
+            y = row_index * TILESIZE + TILESIZE // 2
+            test_rect = pygame.Rect(0, 0, 34, 34)
+            test_rect.center = (x, y)
+
+            if test_rect.colliderect(self.player.rect):
+                continue
+            if any(test_rect.colliderect(fruit.rect) for fruit in self.fruit_sprites):
+                continue
+            if any(test_rect.colliderect(sprite.rect) for sprite in self.obstacle_sprites):
+                continue
+
+            is_golden = random.random() < GOLDEN_FRUIT_CHANCE
+            FruitSprite((x, y), [self.visible_sprites, self.fruit_sprites], golden=is_golden)
+            return
+
+    def collect_fruits(self):
+        """Increase score when the player touches fruit."""
+
+        player_rect = getattr(self.player, "hitbox", self.player.rect)
+        collected = [fruit for fruit in self.fruit_sprites if fruit.rect.colliderect(player_rect)]
+
+        for fruit in collected:
+            self.score += fruit.points
+            self.fruits_collected += 1
+            if fruit.golden:
+                self.golden_fruits_collected += 1
+            fruit.kill()
+            self.spawn_fruit()
+
+    def time_remaining(self):
+        """Return seconds left in the round."""
+
+        elapsed = (pygame.time.get_ticks() - self.round_started_at) / 1000
+        return max(0, int(GAME_DURATION_SECONDS - elapsed))
+
+    def check_round_end(self):
+        """Stop gameplay when health reaches 0 or the countdown expires."""
+
+        if self.game_over:
+            return
+        if self.player.hp <= 0:
+            self.finish_round("Health reached 0")
+        elif self.time_remaining() <= 0:
+            self.finish_round("Time expired")
+
+    def finish_round(self, reason):
+        """Freeze the round and make final stats available to main.py."""
+
+        self.game_over = True
+        self.game_over_reason = reason
+
+    def session_result_payload(self, player_name, game_id, session_id):
+        """Build the arcade session-result payload for the launcher service."""
+
+        elapsed = min(GAME_DURATION_SECONDS, (pygame.time.get_ticks() - self.round_started_at) / 1000)
+        outcome = "Game Over" if self.player.hp <= 0 else "Complete"
+        if self.game_over_reason == "Time expired":
+            outcome = "Time Up"
+        return {
+            "player_id": player_name,
+            "game_id": game_id,
+            "session_id": session_id,
+            "score": self.score,
+            "outcome": outcome,
+            "duration_seconds": int(elapsed),
+            "metadata": {
+                "fruits_collected": self.fruits_collected,
+                "golden_fruits_collected": self.golden_fruits_collected,
+                "health_remaining": self.player.hp,
+                "reason": self.game_over_reason,
+            },
+        }
+
+    # ------------------------------------------------------------------
     # Combat
     # ------------------------------------------------------------------
 
@@ -404,7 +541,7 @@ class Level:
             self.font.render(self.connection_status, True, status_color), (10, 10))
 
         self.display_surface.blit(
-            self.font.render("I: Inventory | SPACE: Attack", True, (255, 255, 255)), (10, 40))
+            self.font.render("Collect fruit before time runs out | I: Inventory | SPACE: Attack", True, (255, 255, 255)), (10, 40))
 
         # Health bar
         bar_rect  = pygame.Rect(10, 70, HEALTH_BAR_WIDTH, BAR_HEIGHT)
@@ -417,9 +554,17 @@ class Level:
             self.font.render(f"HP {self.player.hp}/{self.player.max_hp}", True, (255, 255, 255)),
             (10 + HEALTH_BAR_WIDTH + 8, 70))
 
+        # Fruit Collection score and countdown
+        self.display_surface.blit(
+            self.font.render(f"Score: {self.score}", True, (255, 255, 255)), (10, 100))
+        self.display_surface.blit(
+            self.font.render(f"Fruits: {self.fruits_collected}", True, (255, 210, 120)), (10, 125))
+        self.display_surface.blit(
+            self.font.render(f"Time: {self.time_remaining()}s", True, (120, 210, 255)), (10, 150))
+
         # XP
         self.display_surface.blit(
-            self.font.render(f"XP: {self.player.exp}", True, (255, 215, 0)), (10, 100))
+            self.font.render(f"XP: {self.player.exp}", True, (255, 215, 0)), (10, 175))
 
         # Equipped weapon
         if self.player.equipped_weapon:
@@ -429,7 +574,7 @@ class Level:
         else:
             msg   = "Weapon: none  (open I → select weapon → Equip)"
             color = (150, 150, 150)
-        self.display_surface.blit(self.font.render(msg, True, color), (10, 125))
+        self.display_surface.blit(self.font.render(msg, True, color), (10, 200))
 
     # ------------------------------------------------------------------
     # Time travel + enemy state snapshots
@@ -539,14 +684,14 @@ class Level:
 
             info = f"History: {self.time_travel.get_history_size()} | Future: {self.time_travel.get_future_size()}"
             text = font_small.render(info, True, (255, 255, 255))
-            self.display_surface.blit(text, (10, 100))
+            self.display_surface.blit(text, (WIDTH - 340, 90))
 
             hint = "R: Rewind | F: Replay"
             text = font_small.render(hint, True, (200, 200, 200))
-            self.display_surface.blit(text, (10, 130))
+            self.display_surface.blit(text, (WIDTH - 340, 118))
         else:
             text = font_small.render("Time travel disabled (multiplayer)", True, (150, 150, 150))
-            self.display_surface.blit(text, (10, 100))
+            self.display_surface.blit(text, (WIDTH - 340, 90))
 
     # ------------------------------------------------------------------
     # Main loop
@@ -561,16 +706,20 @@ class Level:
         self.update_network()
 
         # Update player and remote players
-        self.player.update()
+        if not self.game_over:
+            self.player.update()
+            self.collect_fruits()
         for other_player in self.other_players.values():
-            other_player.update()
+            if not self.game_over:
+                other_player.update()
 
         # Update enemies; freeze them while time-traveling
-        if not self.is_time_traveling:
+        if not self.is_time_traveling and not self.game_over:
             for enemy in list(self.enemies):
                 enemy.enemy_update(self.player)   # set combat AI state first
             self.enemies.update()                  # then move/animate/check death
             self.player_attack_logic()             # weapon collisions
+            self.check_round_end()
 
         # Draw (Y-sorted; custom_draw does NOT call update())
         #self.visible_sprites.custom_draw(self.player)
@@ -583,7 +732,8 @@ class Level:
 
         self.visible_sprites.custom_draw(self.player)
         
-        self.record_player_state()
+        if not self.game_over:
+            self.record_player_state()
 
         self.draw_names()
         self.draw_status()
@@ -621,7 +771,7 @@ class Level:
 
         if len(self.enemies) == 0:
             font = pygame.font.Font(None, 24)
-            text = font.render("No patrol enemies - implement Waypoint and PatrolPath!", True, (255, 255, 100))
+            text = font.render("No patrol enemies are active.", True, (255, 255, 100))
             self.display_surface.blit(text, (10, 160))
             return
 

@@ -8,11 +8,33 @@ TILESIZE = 64
 BTN_W = 400
 BTN_H = 70
 
-GAME_NAME = "Fruit Drop Rush"
+GAME_NAME = "Fruit Collection"
+
+# Fruit Collection rules
+GAME_DURATION_SECONDS = 90
+STARTING_FRUIT_COUNT = 28
+GOLDEN_FRUIT_CHANCE = 0.15
+NORMAL_FRUIT_POINTS = 1
+GOLDEN_FRUIT_POINTS = 5
 
 # Network settings
 DEFAULT_SERVER = 'localhost'
-DEFAULT_PORT   = 8080
+ALLOWED_SERVER_PORTS = (50068, 50069, 50075, 50082)
+DEFAULT_PORT   = 50068
+
+def normalize_server_port(port):
+    """Return a class-approved multiplayer port.
+
+    Fruit Collection can be run directly or launched from Scorpions Arcade.
+    Either way, it should never fall back to old lab ports such as 8080. If an
+    unsupported port is supplied, use Joy's assigned default port, 50068.
+    """
+
+    try:
+        parsed_port = int(port)
+    except (TypeError, ValueError):
+        return DEFAULT_PORT
+    return parsed_port if parsed_port in ALLOWED_SERVER_PORTS else DEFAULT_PORT
 
 # Combat HUD
 HEALTH_BAR_WIDTH = 200

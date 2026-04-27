@@ -18,11 +18,24 @@ import json
 import struct
 from queue import Queue
 
+try:
+    from settings import DEFAULT_PORT, normalize_server_port
+except Exception:
+    DEFAULT_PORT = 50068
+
+    def normalize_server_port(port):
+        allowed = (50068, 50069, 50075, 50082)
+        try:
+            parsed_port = int(port)
+        except (TypeError, ValueError):
+            return DEFAULT_PORT
+        return parsed_port if parsed_port in allowed else DEFAULT_PORT
+
 class NetworkClient:
-    def __init__(self, player_name, server_host='localhost', server_port=8080, serializer='text'):
+    def __init__(self, player_name, server_host='localhost', server_port=DEFAULT_PORT, serializer='text'):
         self.player_name = player_name
         self.server_host = server_host
-        self.server_port = server_port
+        self.server_port = normalize_server_port(server_port)
         self.serializer = serializer.lower()  # 'text', 'json', or 'binary'
         
         if self.serializer not in ['text', 'json', 'binary']:

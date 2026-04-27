@@ -8,8 +8,6 @@ import pygame
 import sys
 import argparse
 import os
-import json
-from pathlib import Path
 from settings import *
 from level import Level
 from subcharacter import get_all_character_classes
@@ -146,7 +144,7 @@ class CharacterCard:
 
 
 class Game:
-    def __init__(self, player_name, server_host='localhost', server_port=DEFAULT_PORT, serializer='text'):
+    def __init__(self, player_name, server_host='localhost', server_port=8080, serializer='text'):
         # general setup
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGTH))
@@ -166,15 +164,13 @@ class Game:
         # Network settings
         self.player_name = player_name
         self.server_host = server_host
-        self.server_port = normalize_server_port(server_port)
+        self.server_port = server_port
         self.serializer = serializer
 
         self.selected_character = None
         self.level = None
         self.running = True
         self.chat_overlay = self.create_chat_overlay()
-        self.result_written = False
-        self.final_payload = None
 
     def create_chat_overlay(self):
         """Create the optional Scorpions Arcade chat overlay.
@@ -188,9 +184,9 @@ class Game:
             return None
         if os.environ.get("SCORPIONS_CHAT_ENABLED") != "1":
             return None
-        session_id = os.environ.get("SCORPIONS_SESSION_ID", "fruit-collection-local")
+        session_id = os.environ.get("SCORPIONS_SESSION_ID", "fruit-drop-rush-local")
         sender = os.environ.get("SCORPIONS_DISPLAY_NAME") or self.player_name
-        title = os.environ.get("SCORPIONS_CHAT_TITLE", "Fruit Collection Chat")
+        title = os.environ.get("SCORPIONS_CHAT_TITLE", "Fruit Drop Rush Chat")
         storage_dir = os.environ.get("SCORPIONS_CHAT_DIR", "")
         return ChatOverlay(ChatOverlayConfig(session_id=session_id, sender_name=sender, title=title, storage_dir=storage_dir))
 
@@ -233,11 +229,15 @@ class Game:
                     continue
                 if event.type == pygame.QUIT:
                     char_select = False
-                    self.return_to_arcade("Quit")
+                    self.running = False
+                    pygame.quit()
+                    sys.exit()
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         char_select = False
-                        self.return_to_arcade("Quit")
+                        self.running = False
+                        pygame.quit()
+                        sys.exit()
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     clicked_this_frame = True
             
@@ -292,99 +292,6 @@ class Game:
             
             self.clock.tick(FPS)
             pygame.display.update()
-
-    def draw_game_over(self):
-        """Draw the finished-round screen over the current map."""
-
-        if self.level is None:
-            return
-
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 175))
-        self.screen.blit(overlay, (0, 0))
-
-        panel = pygame.Rect(WIDTH // 2 - 260, HEIGHT // 2 - 170, 520, 340)
-        pygame.draw.rect(self.screen, (22, 27, 38), panel, border_radius=12)
-        pygame.draw.rect(self.screen, (255, 208, 92), panel, width=3, border_radius=12)
-
-        title = self.font.render("Game Over", True, (255, 244, 220))
-        self.screen.blit(title, title.get_rect(center=(panel.centerx, panel.y + 58)))
-
-        lines = [
-            f"Final Score: {self.level.score}",
-            f"Fruits Collected: {self.level.fruits_collected}",
-            f"Golden Fruits: {self.level.golden_fruits_collected}",
-            f"Reason: {self.level.game_over_reason or 'Round complete'}",
-            "Press R to restart",
-            "Press ESC to return to arcade",
-        ]
-
-        for index, line in enumerate(lines):
-            color = (245, 248, 255) if index < 4 else (132, 206, 255)
-            text = self.button_font.render(line, True, color)
-            self.screen.blit(text, text.get_rect(center=(panel.centerx, panel.y + 120 + index * 35)))
-
-    def restart_round(self):
-        """Start a fresh Fruit Collection round with the selected character."""
-
-        if self.selected_character is None:
-            return
-        if self.level is not None:
-            self.level.network.disconnect()
-        self.result_written = False
-        self.final_payload = None
-        self.level = Level(
-            self.player_name,
-            self.selected_character,
-            self.server_host,
-            self.server_port,
-            self.serializer,
-        )
-
-    def write_session_result(self, outcome="Quit"):
-        """Write final score data for the arcade launcher, if a path is set."""
-
-        if self.result_written:
-            return
-
-        game_id = os.environ.get("SCORPIONS_GAME_ID", "scorpions-arena")
-        session_id = os.environ.get("SCORPIONS_SESSION_ID", "fruit-collection-local")
-
-        if self.level is not None:
-            payload = self.level.session_result_payload(self.player_name, game_id, session_id)
-        else:
-            payload = {
-                "player_id": self.player_name,
-                "game_id": game_id,
-                "session_id": session_id,
-                "score": 0,
-                "outcome": outcome,
-                "duration_seconds": 0,
-                "metadata": {"fruits_collected": 0, "golden_fruits_collected": 0, "reason": outcome},
-            }
-
-        self.final_payload = payload
-        result_path = os.environ.get("SCORPIONS_RESULT_PATH", "")
-        if result_path:
-            try:
-                path = Path(result_path)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with path.open("w", encoding="utf-8") as file:
-                    json.dump(payload, file)
-            except OSError:
-                # The game should still close cleanly even if the arcade result
-                # temp file is not writable.
-                pass
-
-        self.result_written = True
-
-    def return_to_arcade(self, outcome="Quit"):
-        """Close this subprocess cleanly so the arcade launcher regains focus."""
-
-        self.write_session_result(outcome)
-        if self.level is not None:
-            self.level.network.disconnect()
-        self.running = False
     
     def run(self):
         """Main game loop"""
@@ -411,62 +318,32 @@ class Game:
                     continue
                 events.append(event)
                 if event.type == pygame.QUIT:
-                    self.return_to_arcade("Quit")
+                    self.level.network.disconnect()
+                    pygame.quit()
+                    sys.exit()
                 elif event.type == pygame.KEYDOWN:
-                    if self.level and self.level.game_over:
-                        if event.key == pygame.K_r:
-                            self.restart_round()
-                            events = []
-                            break
-                        if event.key == pygame.K_ESCAPE:
-                            self.return_to_arcade("Return to arcade")
-                    elif event.key == pygame.K_ESCAPE:
-                        self.return_to_arcade("Quit")
+                    if event.key == pygame.K_ESCAPE:
+                        self.level.network.disconnect()
+                        pygame.quit()
+                        sys.exit()
 
             self.screen.fill('black')
             self.level.run(events)
-            if self.level.game_over:
-                self.write_session_result()
-                self.draw_game_over()
             if self.chat_overlay:
                 self.chat_overlay.update(self.clock.get_time())
                 self.chat_overlay.draw(self.screen)
             pygame.display.update()
             self.clock.tick(FPS)
 
-        pygame.quit()
-        return {"message": f"{GAME_NAME} returned control to Scorpions Arcade.", "session_result": self.final_payload}
-
-
-def run_game(player_info=None, session_info=None):
-    """Adapter entry point for launchers that prefer importing over subprocess.
-
-    The arcade currently uses subprocess launch mode to preserve this game's
-    relative asset paths. This adapter is still useful for tests or future
-    launchers that can safely run games in-process.
-    """
-
-    player_info = player_info or {}
-    session_info = session_info or {}
-    player_name = player_info.get("display_name") or player_info.get("username") or "Player"
-    server_host = session_info.get("server_host", DEFAULT_SERVER)
-    server_port = normalize_server_port(session_info.get("server_port", DEFAULT_PORT))
-    serializer = session_info.get("serializer", "text")
-    game = Game(str(player_name), str(server_host), server_port, str(serializer))
-    return game.run()
-
 
 if __name__ == '__main__':
-    default_server = os.environ.get("SCORPIONS_SERVER_HOST", DEFAULT_SERVER)
-    default_port = normalize_server_port(os.environ.get("SCORPIONS_SERVER_PORT", DEFAULT_PORT))
-
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Multiplayer Game Client with Character Selection')
     parser.add_argument('name', help='Your player name')
-    parser.add_argument('--server', default=default_server,
-                       help=f'Server hostname (default: {default_server})')
-    parser.add_argument('--port', type=int, default=default_port,
-                       help=f'Server port. Allowed: {ALLOWED_SERVER_PORTS}. Default: {DEFAULT_PORT}')
+    parser.add_argument('--server', default='localhost', 
+                       help='Server hostname (default: localhost)')
+    parser.add_argument('--port', type=int, default=8080, 
+                       help='Server port (default: 8080)')
     parser.add_argument('--serializer', choices=['text', 'json', 'binary'], 
                        default='text',
                        help='Serialization format: text (default), json, or binary')
@@ -475,13 +352,10 @@ if __name__ == '__main__':
     
     print("="*50)
     print(f"Starting game as '{args.name}'")
-    safe_port = normalize_server_port(args.port)
-    if safe_port != args.port:
-        print(f"Unsupported port {args.port}; using allowed default {safe_port}.")
-    print(f"Connecting to {args.server}:{safe_port}")
+    print(f"Connecting to {args.server}:{args.port}")
     print(f"Using {args.serializer.upper()} serialization")
     print("="*50)
     print()
     
-    game = Game(args.name, args.server, safe_port, args.serializer)
+    game = Game(args.name, args.server, args.port, args.serializer)
     game.run()
