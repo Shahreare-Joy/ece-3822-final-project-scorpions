@@ -25,47 +25,71 @@ DEFAULT_ACCOUNT_PATH = PROJECT_ROOT / "data" / "demo_accounts.json"
 
 
 def _default_demo_records(count: int = 22) -> list[dict[str, Any]]:
-    """Return Joy plus editable classmate demo accounts.
+    """Return editable class roster accounts.
 
     Passwords are intentionally simple because this is a local demo file, not
     production auth. The platform_server/accounts.py area is where the team can
     later replace this with hashed server-side account records.
     """
 
-    records: list[dict[str, Any]] = [
-        {
-            "username": "joy",
-            "display_name": "Joy",
-            "password": "123456",
-            "country": "USA",
-            "joined_year": 2022,
-            "level": 42,
-            "favorite_genre": "Arcade",
-            "total_sessions": 318,
-            "total_wins": 94,
-            "status": "Online",
-            "bio": "Team lead and Scorpions Arcade host.",
-            "avatar_id": "avatar_joy",
-        }
+    _ = count
+    return [
+        _class_account("evan", "Evan", "ave428"),
+        _class_account("ibrahim", "Ibrahim", "bri517"),
+        _class_account("mennah", "Mennah", "enm246"),
+        _class_account("deven", "Deven", "ved391"),
+        _class_account("paul", "Paul", "uap604"),
+        _class_account("jude", "Jude", "dej738"),
+        _class_account("michael", "Michael", "cim829"),
+        _class_account("shahreare", "Shahreare", "has068", student_number=68, server_port=50068, bio="Team lead and Scorpions Arcade host."),
+        _class_account("kevin", "Kevin", "vek069", student_number=69, server_port=50069),
+        _class_account("richard", "Richard", "hri412"),
+        _class_account("thomas", "Thomas", "hot585"),
+        _class_account("ellie", "Ellie", "lei734"),
+        _class_account("ryan", "Ryan", "ayr260"),
+        _class_account("emmanuel", "Emmanuel", "mem913"),
+        _class_account("hamza", "Hamza", "amh075", student_number=75, server_port=50075),
+        _class_account("damien", "Damien", "mad632"),
+        _class_account("vraj", "Vraj", "arv447"),
+        _class_account("owen", "Owen", "ewo524"),
+        _class_account("minju", "Minju", "imn881"),
+        _class_account("santiago", "Santiago", "nas302"),
+        _class_account("kimberly", "Kimberly", "mik990"),
+        _class_account("mykai", "Mykai", "ykm082", student_number=82, server_port=50082),
+        _class_account("nicholas", "Nicholas", "cin672"),
+        _class_account("chuqi", "Chuqi", "qcu231", role="TA"),
+        _class_account("sal", "Sal", "als911", role="Professor"),
     ]
-    for index in range(1, count + 1):
-        records.append(
-            {
-                "username": f"classmate{index:02d}",
-                "display_name": f"Classmate {index:02d}",
-                "password": f"scorpion{index:02d}",
-                "country": "USA",
-                "joined_year": 2026,
-                "level": 1 + index % 12,
-                "favorite_genre": ["Arcade", "Action", "Puzzle", "Racing"][index % 4],
-                "total_sessions": 0,
-                "total_wins": 0,
-                "status": "Online",
-                "bio": "Demo classmate account for presentation sign-in.",
-                "avatar_id": f"avatar_{index:02d}",
-            }
-        )
-    return records
+
+
+def _class_account(
+    username: str,
+    display_name: str,
+    password: str,
+    student_number: int | None = None,
+    server_port: int | None = None,
+    role: str = "Student",
+    bio: str | None = None,
+) -> dict[str, Any]:
+    """Build one class account record for data/demo_accounts.json."""
+
+    return {
+        "username": username,
+        "display_name": display_name,
+        "password": password,
+        "country": "USA",
+        "joined_year": 2026,
+        "level": 8 if role == "Student" else 20,
+        "favorite_genre": "Arcade",
+        "total_sessions": 0,
+        "total_wins": 0,
+        "status": "Online",
+        "bio": bio or f"{role} account for Scorpions Arcade class play.",
+        "avatar_id": f"avatar_{username}",
+        "role": role,
+        "student_number": student_number,
+        "server_port": server_port,
+    }
 
 
 class DemoAccountStore:

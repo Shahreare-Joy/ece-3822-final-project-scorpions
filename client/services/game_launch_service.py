@@ -128,6 +128,8 @@ class GameLaunchService:
         env["client_LAUNCH"] = "1"
         env["SCORPIONS_GAME_ID"] = target.game_id
         env["SCORPIONS_SESSION_ID"] = request.session_id
+        env["SCORPIONS_SERVER_HOST"] = self.connection.host
+        env["SCORPIONS_SERVER_PORT"] = str(self.connection.port)
         env["SCORPIONS_PLAYER"] = str(player_info.get("username", "guest"))
         env["SCORPIONS_DISPLAY_NAME"] = str(player_info.get("display_name", "Guest"))
         env["SCORPIONS_CHAT_ENABLED"] = "1"

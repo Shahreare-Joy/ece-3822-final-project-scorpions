@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Service exports for the Pygame client.
 
-This module intentionally uses lazy imports. Fruit Drop Rush imports
+This module intentionally uses lazy imports. Fruit Collection imports
 `client.components.ChatOverlay`, and the overlay imports `client.services.chat_service`.
 If this package eagerly imports every service, the game subprocess can pull in
 the full platform backend and accidentally shadow project-level packages with

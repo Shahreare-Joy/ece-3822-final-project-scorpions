@@ -10,10 +10,13 @@ from .base_screen import BaseScreen
 
 class ProfileScreen(BaseScreen):
     def draw(self) -> None:
-        player = self.app.current_player
+        player = self.app.profile_player or self.app.current_player
         if player is None:
             return
-        self.page_title("Player Profile", "Your arcade profile, recent sessions, stats, and session chat preview.")
+        subtitle = "Your arcade profile, recent sessions, stats, and session chat preview."
+        if self.app.profile_player is not None and self.app.profile_player != self.app.current_player:
+            subtitle = "Public player profile, recent sessions, stats, and session chat preview."
+        self.page_title("Player Profile", subtitle)
         left = pygame.Rect(30, 178, 480, 230)
         right = pygame.Rect(540, 178, 630, 230)
         draw_panel(self.app.screen, left)

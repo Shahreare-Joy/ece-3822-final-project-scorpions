@@ -25,7 +25,8 @@ class CreateAccountScreen(BaseScreen):
         ]
 
     def try_create(self) -> None:
-        # TODO(PROJECT): Keep UI validation simple; real account creation belongs in services/backend.
+        # Account creation persists through the auth/account service so players
+        # can close and reopen the arcade without losing the new login.
         result = self.app.backend.create_account(self.username.text, self.display_name.text, self.password.text, self.confirm.text, self.country.text)
         if not result.success:
             self.app.show_message(result.message, Palette.ERROR)
@@ -58,10 +59,9 @@ class CreateAccountScreen(BaseScreen):
         panel = pygame.Rect(360, 160, 480, 515)
         draw_panel(self.app.screen, panel)
         draw_text(self.app.screen, "Create Account", self.app.fonts.heading, Palette.TEXT, panel.centerx, 190, center=True)
-        draw_wrapped(self.app.screen, "Temporary local account only. Replace this with server signup later.", self.app.fonts.small, Palette.MUTED, pygame.Rect(panel.x + 50, 213, panel.width - 100, 42), align="center")
+        draw_wrapped(self.app.screen, "Create a local Scorpions Arcade account for this machine.", self.app.fonts.small, Palette.MUTED, pygame.Rect(panel.x + 50, 213, panel.width - 100, 42), align="center")
         for box in self.inputs:
             box.draw(self.app.screen)
         for button in self.buttons:
             button.draw(self.app.screen)
         self.draw_message(710)
-

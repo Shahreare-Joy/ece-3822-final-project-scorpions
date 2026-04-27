@@ -1,6 +1,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import socket
+from time import time
+
+
+ALLOWED_SERVER_PORTS = (50068, 50069, 50075, 50082)
+
+
+def is_allowed_port(port: int) -> bool:
+    """Return True when a port is one of the class-approved ports."""
+
+    try:
+        return int(port) in ALLOWED_SERVER_PORTS
+    except (TypeError, ValueError):
+        return False
+
+
+def normalize_allowed_port(port: int) -> int:
+    """Return an allowed class port, falling back to Joy's assigned port."""
+
+    try:
+        parsed_port = int(port)
+    except (TypeError, ValueError):
+        return 50068
+    return parsed_port if parsed_port in ALLOWED_SERVER_PORTS else 50068
 
 
 @dataclass
@@ -11,10 +35,13 @@ class ServerConnectionInfo:
     host: str = "127.0.0.1"
 
     # server port number
-    port: int = 3822
+    port: int = 50068
 
     # communication protocol (tcp/udp/etc.)
     protocol: str = "tcp"
+
+    def __post_init__(self) -> None:
+        self.port = normalize_allowed_port(int(self.port))
 
 
 @dataclass
@@ -80,7 +107,12 @@ class ServerSessionResponse:
 
 
 class CppServerClient:
-    """Placeholder client for future C++ multiplayer/backend communication."""
+    """Small client-side hook for the future C++ multiplayer server.
+
+    This class intentionally stays tiny. It can verify that a TCP server is
+    reachable on one of the approved class ports, but the final gameplay
+    protocol still belongs in the C++ server and game clients.
+    """
 
     def __init__(self, connection: ServerConnectionInfo | None = None) -> None:
         # store connection settings
@@ -90,13 +122,15 @@ class CppServerClient:
         self.connected = False
 
     def connect(self) -> None:
-        '''connect to C++ backend server'''
+        '''try to connect to the C++ backend server'''
 
-        # TODO(C++): Implement socket connection to the C++ server.
-        # This remains a safe no-network stub until the C++ protocol exists.
-
-        # currently does nothing (stub)
-        self.connected = False
+        try:
+            with socket.create_connection((self.connection.host, self.connection.port), timeout=0.75):
+                self.connected = True
+        except OSError:
+            # Safe fallback: games can still run offline/local, but the UI can
+            # honestly report that the live C++ server is not reachable.
+            self.connected = False
 
     def login(self, request: ServerLoginRequest) -> ServerLoginResponse:
         '''send login request to backend'''
@@ -120,14 +154,24 @@ class CppServerClient:
     def create_or_join_session(self, request: ServerSessionRequest) -> ServerSessionResponse:
         '''request session creation or join'''
 
-        # TODO(C++ LAUNCH): Ask the C++ server to create/join a game session and
-        # return authoritative session_id, server_host, server_port, and token.
+        # TODO(C++ LAUNCH): Replace this local session id with the
+        # authoritative session_id/player_token returned by the C++ server.
+        if not self.connected:
+            self.connect()
+        if not self.connected:
+            return ServerSessionResponse(False, "C++ session server is not reachable on the selected class port.")
 
-        # ignore request for now
-        _ = request
-
-        # return placeholder response
-        return ServerSessionResponse(False, "C++ session handoff is not connected yet.")
+        safe_game = request.game_id.replace(" ", "-")
+        safe_user = request.username.replace(" ", "-")
+        session_id = f"{safe_game}-{safe_user}-{int(time())}"
+        return ServerSessionResponse(
+            True,
+            "Connected to local C++ demo server.",
+            session_id=session_id,
+            server_host=self.connection.host,
+            server_port=self.connection.port,
+            player_token=f"local-token-{safe_user}",
+        )
 
     def send_chat_message(self, channel: str, message: str) -> None:
         '''send chat message to backend'''

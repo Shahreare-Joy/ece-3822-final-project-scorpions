@@ -22,7 +22,8 @@ class GameDetailsScreen(BaseScreen):
     def play_game(self) -> None:
         game = self.app.current_game
         if game:
-            self.app.navigate(ScreenName.SESSION_CHAT, "Session lobby opened. Chat is available before and after launch.", Palette.SUCCESS)
+            message = self.app.backend.launch_game(self.app.current_player, game)
+            self.app.show_message(message, Palette.SUCCESS if game.playable else Palette.WARNING)
 
     def draw(self) -> None:
         game = self.app.current_game or self.app.backend.get_game("scorpions-arena")

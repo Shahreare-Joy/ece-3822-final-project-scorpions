@@ -18,6 +18,7 @@ class AppState:
 
     running: bool = True
     current_player: Player | None = None
+    profile_player: Player | None = None
     current_game: Game | None = None
     current_screen: ScreenName = ScreenName.WELCOME
     message: str = ""

@@ -90,8 +90,8 @@ class CatalogService:
         # TODO (DONE)(SCALE): Use cached service results rather than screen-time sorting.
         popular = self.sort_games(games, "players_now")[:5]
         return HomeRows(
-            continue_playing=[by_id["scorpions-arena"], by_id["crystal-run"], by_id["block-arena"]],
-            recently_played=[by_id["sky-raiders"], by_id["turbo-sprint"], by_id["logic-lab"], by_id["castle-quest"]],
+            continue_playing=[by_id["scorpions-arena"], by_id["sky-raiders"], by_id["turbo-sprint"]],
+            recently_played=[by_id["crystal-run"], by_id["logic-lab"], by_id["castle-quest"], by_id["block-arena"]],
             popular_now=popular,
             recommended=[by_id["circuit-chef"], by_id["astro-miners"], by_id["tiny-tactics"], by_id["buddy-bots"]],
             featured=[game for game in games if game.team_game] + [by_id["neon-strikers"]],

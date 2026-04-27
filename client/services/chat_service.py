@@ -11,14 +11,18 @@ from .session_chat import SessionChat
 
 
 class ChatService:
-    """Temporary per-session chat manager.
+    """Per-session chat manager used by the arcade and launched games.
 
     Each session_id maps to its own SessionChat, and each SessionChat keeps a
-    bounded message log. This is still a local UI/client scaffold.
+    bounded message log. When storage_dir is provided, messages are saved to a
+    shared JSON file per session. That lets multiple local game/client processes
+    using the same project folder see each other's messages without requiring
+    the unfinished C++ socket server.
 
     TODO(CHAT/C++): Connect add_message to the C++ multiplayer server so new
     messages are validated, sanitized, and broadcast to every player in the
-    session. Add persistence only if the final design requires saved chat.
+    session across different machines. The current file-backed bridge works for
+    local/shared-folder play and keeps the overlay API stable for that upgrade.
 
     Requirement target: one chat channel per active game session. Keep only the
     most recent N messages per session on the client so long-running matches do
@@ -52,6 +56,8 @@ class ChatService:
         return message
 
     def get_recent_messages(self, session_id: str, limit: int | None = None) -> list[ChatMessage]:
+        # Reload from disk before rendering so another launched game process can
+        # add a message and this process will show it on the next draw.
         if self.storage_dir is not None:
             self._load_session_from_disk(session_id.strip() or "global")
         chat = self.get_or_create_session_chat(session_id)

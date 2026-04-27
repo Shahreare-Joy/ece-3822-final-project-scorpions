@@ -82,7 +82,17 @@ class ArcadeApp:
     def message_color(self, value: tuple[int, int, int]) -> None:
         self.state.message_color = value
 
-    def navigate(self, screen_name: ScreenName, message: str = "", color: tuple[int, int, int] = Palette.MUTED) -> None:
+    @property
+    def profile_player(self) -> Player | None:
+        return self.state.profile_player
+
+    @profile_player.setter
+    def profile_player(self, value: Player | None) -> None:
+        self.state.profile_player = value
+
+    def navigate(self, screen_name: ScreenName, message: str = "", color: tuple[int, int, int] = Palette.MUTED, preserve_profile: bool = False) -> None:
+        if screen_name == ScreenName.PROFILE and not preserve_profile:
+            self.profile_player = None
         self.current_screen = screen_name
         self.message = message
         self.message_color = color
@@ -93,12 +103,17 @@ class ArcadeApp:
         self.current_game = game
         self.navigate(ScreenName.GAME_DETAILS)
 
+    def open_player_profile(self, player: Player) -> None:
+        self.profile_player = player
+        self.navigate(ScreenName.PROFILE, f"Viewing {player.display_name}'s profile.", Palette.MUTED, preserve_profile=True)
+
     def show_message(self, message: str, color: tuple[int, int, int] = Palette.MUTED) -> None:
         self.message = message
         self.message_color = color
 
     def logout(self) -> None:
         self.current_player = None
+        self.profile_player = None
         self.current_game = None
         self.navigate(ScreenName.WELCOME, "You have been logged out.", Palette.MUTED)
 

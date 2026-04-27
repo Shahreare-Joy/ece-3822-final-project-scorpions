@@ -77,7 +77,7 @@ class GameLaunchTarget:
             "display_name": str(player_info.get("display_name", "Guest")),
             "session_id": str(session_info.get("session_id", "")),
             "server_host": str(session_info.get("server_host", "localhost")),
-            "server_port": str(session_info.get("server_port", "8080")),
+            "server_port": str(session_info.get("server_port", "50068")),
             "game_id": self.game_id,
         }
         return [arg.format(**values) for arg in self.script_args]
@@ -89,11 +89,12 @@ class GameLaunchTarget:
 GAME_LAUNCH_TARGETS: dict[str, GameLaunchTarget] = {
     "scorpions-arena": GameLaunchTarget(
         game_id="scorpions-arena",
-        title="Fruit Drop Rush",
-        creator="Team Member 1",
+        title="Fruit Collection",
+        creator="Shahreare Joy",
         folder_name="game_1",
+        script_args=("{username}", "--server", "{server_host}", "--port", "{server_port}"),
         not_connected_message="Game 1 is not pasted into games/game_1/code/game/main.py yet.",
-        notes="Team game 1. Your pasted folder currently lives here.",
+        notes="Team game 1. Map-based fruit collection game.",
     ),
     "sky-raiders": GameLaunchTarget(
         game_id="sky-raiders",

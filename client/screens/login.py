@@ -22,7 +22,9 @@ class LoginScreen(BaseScreen):
         ]
 
     def try_login(self) -> None:
-        # TODO(PROJECT): Replace backend mock auth with real account/server auth.
+        # Local classroom accounts are backed by data/demo_accounts.json.
+        # The server auth layer can replace this service later without changing
+        # the screen behavior.
         result = self.app.backend.authenticate(self.username.text, self.password.text)
         if not result.success:
             self.app.show_message(result.message, Palette.ERROR)
@@ -58,10 +60,9 @@ class LoginScreen(BaseScreen):
         panel = pygame.Rect(380, 215, 440, 380)
         draw_panel(self.app.screen, panel)
         draw_text(self.app.screen, "Log In", self.app.fonts.heading, Palette.TEXT, panel.centerx, 252, center=True)
-        draw_wrapped(self.app.screen, "Use joy / 123456 for the temporary mock account.", self.app.fonts.small, Palette.MUTED, pygame.Rect(panel.x + 54, 275, panel.width - 108, 40), align="center")
+        draw_wrapped(self.app.screen, "Use your class account, or create a new local arcade account.", self.app.fonts.small, Palette.MUTED, pygame.Rect(panel.x + 54, 275, panel.width - 108, 40), align="center")
         for box in self.inputs:
             box.draw(self.app.screen)
         for button in self.buttons:
             button.draw(self.app.screen)
         self.draw_message(632)
-
