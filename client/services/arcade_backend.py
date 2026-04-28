@@ -195,7 +195,16 @@ class MockArcadeBackend:
             if not self.runtime_config.allow_local_fallback:
                 return AuthResult(False, remote.message)
             self.local_fallback_active = True
-            self.platform_status.message = f"Remote login unavailable ({remote.message}); using local account file fallback."
+            self.platform_status = ServerAvailability(
+                name=self.platform_status.name,
+                role=self.platform_status.role,
+                host=self.platform_status.host,
+                port=self.platform_status.port,
+                reachable=True,
+                message=f"Remote login unavailable ({remote.message}); using local account file fallback.",
+                protocol=self.platform_status.protocol,
+                direct_call=self.platform_status.direct_call,
+            )
         result = self.auth_service.authenticate(username, password)
         if result.success:
             self._refresh_player_services()
