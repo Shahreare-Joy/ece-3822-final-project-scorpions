@@ -57,10 +57,10 @@ class MockArcadeBackend:
         self.players = {player.username: player for player in MOCK_PLAYERS}
         self.players.update(self.account_store.load_players())
         self.synthetic_players_loaded = False
+        self.synthetic_catalog_loaded = False
+        self.synthetic_sessions_loaded = False
         self.games = {game.game_id: game for game in MOCK_GAMES}
-        self.games.update(self._load_synthetic_games())
         self.sessions = list(MOCK_SESSIONS)
-        self.sessions.extend(self._load_synthetic_sessions())
         self.leaderboard_entries = list(MOCK_LEADERBOARD)
         self.chat_messages = list(MOCK_CHAT)
         self.stats = MOCK_STATS
@@ -93,30 +93,37 @@ class MockArcadeBackend:
         return self.catalog_service.get_platform_stats()
 
     def get_games(self) -> list[Game]:
+        self.ensure_synthetic_catalog_loaded()
         return self.catalog_service.get_games()
 
     def get_game(self, game_id: str) -> Game | None:
+        self.ensure_synthetic_catalog_loaded()
         return self.catalog_service.get_game(game_id)
 
     def get_player(self, username: str) -> Player | None:
         return self.profile_service.get_player(username)
 
     def get_home_rows(self, player: Player | None) -> HomeRows:
+        self.ensure_personalization_dataset_loaded()
         return self.catalog_service.get_home_rows(player, self.recommendation_service)
 
     def has_player_history(self, player: Player | None) -> bool:
+        self.ensure_personalization_dataset_loaded()
         return self.recommendation_service.has_history(player)
 
     def filter_games(self, genre: str) -> list[Game]:
+        self.ensure_synthetic_catalog_loaded()
         return self.catalog_service.filter_games(genre)
 
     def search_games(self, query: str, limit: int = 24) -> list[Game]:
+        self.ensure_synthetic_catalog_loaded()
         return self.catalog_service.search_games(query, limit)
 
     def get_leaderboard(self, game_id: str, limit: int = 8) -> list[LeaderboardEntry]:
         return self.leaderboard_service.get_leaderboard(game_id, limit)
 
     def get_sessions(self, username: str | None = None, game_id: str | None = None, limit: int = 8) -> list[GameSession]:
+        self.ensure_personalization_dataset_loaded()
         return self.history_service.get_sessions(username, game_id, limit)
 
     def search_players(self, query: str, limit: int = 25) -> list[Player]:
@@ -192,6 +199,38 @@ class MockArcadeBackend:
         self.players.update(self.account_store.load_players())
         self.synthetic_players_loaded = True
         self._refresh_player_services()
+
+    def ensure_synthetic_catalog_loaded(self) -> None:
+        """Load the large generated catalog only when Browse/Home need it.
+
+        Login only needs accounts, so loading 100+ catalog rows during backend
+        construction just delays the first screen. This rebuilds the catalog
+        indexes once, then all future calls reuse them.
+        """
+
+        if self.synthetic_catalog_loaded:
+            return
+        self.games.update(self._load_synthetic_games())
+        self.synthetic_catalog_loaded = True
+        self.catalog_service = CatalogService(self.games, self.stats)
+        self.recommendation_service = RecommendationService(self.games, self.sessions)
+
+    def ensure_personalization_dataset_loaded(self) -> None:
+        """Load full session history only when personalized rows/history need it.
+
+        The 100,000-session file is useful for Recently Played, Recommended For
+        You, and match history, but it should not block the login screen. The
+        history and recommendation services build custom hash-table, linked-list,
+        and graph indexes once after this lazy load.
+        """
+
+        if self.synthetic_sessions_loaded:
+            return
+        self.ensure_synthetic_catalog_loaded()
+        self.sessions.extend(self._load_synthetic_sessions())
+        self.synthetic_sessions_loaded = True
+        self.history_service = HistoryService(self.sessions)
+        self.recommendation_service = RecommendationService(self.games, self.sessions)
 
     def session_id_for_game(self, game: Game | None) -> str:
         if game is None:
@@ -282,9 +321,9 @@ class MockArcadeBackend:
     def _load_synthetic_sessions(self) -> list[GameSession]:
         """Load 100,000-session history into UI session rows.
 
-        This builds startup indexes from realistic synthetic history. The UI
-        never scans this list per frame; `HistoryService` and
-        `RecommendationService` build hash-table indexes once.
+        This is lazy-loaded after login instead of during the first backend
+        construction. The UI never scans this list per frame; `HistoryService`
+        and `RecommendationService` build hash-table indexes once.
         """
 
         path = Path(__file__).resolve().parents[2] / "data" / "synthetic_dataset" / "sessions.json"
