@@ -24,8 +24,14 @@ Target sizes:
 - 50,000+ chat messages
 - 100+ catalog games
 
+The current generated JSON includes realistic skew: popular games and active
+players produce more sessions, each player has genre preferences, scores depend
+partly on skill, durations/chat volume have long tails, and similar players
+overlap in games played so recommendations are not random.
+
 The current CSV files are legacy placeholders. The JSON files are the dataset
 format expected by `platform_server/data_ingest.py`.
 
-TODO(DATASET): If the schema changes, update `data/generate_dataset.py`,
-`platform_server/data_ingest.py`, and the documentation together.
+If the schema changes, update `data/generate_dataset.py`,
+`platform_server/data_ingest.py`, `tools/verify_project.py`, and the
+documentation together.

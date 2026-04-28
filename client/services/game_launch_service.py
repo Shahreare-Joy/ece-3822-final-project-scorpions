@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 
-from client.integrations import ServerConnectionInfo, ServerSessionRequest
+from client.integrations import GameServerConnectionInfo, ServerConnectionInfo, ServerSessionRequest
 from client.models import Game, Player
 from .game_launch_registry import GameLaunchTarget, get_launch_target
 
@@ -55,7 +55,7 @@ class GameLaunchService:
     """Starter launch/handoff layer for playable team games."""
 
     def __init__(self, connection: ServerConnectionInfo | None = None) -> None:
-        self.connection = connection or ServerConnectionInfo()
+        self.connection = connection or GameServerConnectionInfo.from_environment()
 
     def launch(self, player: Player | None, game: Game, session_id: str | None = None) -> LaunchResult:
         username = player.username if player else "guest"
@@ -130,6 +130,8 @@ class GameLaunchService:
         env["SCORPIONS_SESSION_ID"] = request.session_id
         env["SCORPIONS_SERVER_HOST"] = self.connection.host
         env["SCORPIONS_SERVER_PORT"] = str(self.connection.port)
+        env["SCORPIONS_GAME_HOST"] = self.connection.host
+        env["SCORPIONS_GAME_PORT"] = str(self.connection.port)
         env["SCORPIONS_PLAYER"] = str(player_info.get("username", "guest"))
         env["SCORPIONS_DISPLAY_NAME"] = str(player_info.get("display_name", "Guest"))
         env["SCORPIONS_CHAT_ENABLED"] = "1"

@@ -22,6 +22,14 @@ class HistoryService:
             self._append(self._by_game, session.game_id, session)
             self._append(self._by_result, session.result.lower(), session)
 
+    def add_session(self, session: GameSession) -> None:
+        """Append a completed local session and update all history indexes."""
+
+        self.sessions.append(session)
+        self._append(self._by_player, session.username, session)
+        self._append(self._by_game, session.game_id, session)
+        self._append(self._by_result, session.result.lower(), session)
+
     def _append(self, table: ChainedHashTable, key: str, session: GameSession) -> None:
         rows = table.get(key)
         if not isinstance(rows, list):
@@ -39,7 +47,7 @@ class HistoryService:
             sessions = self.sessions
         if game_id and username:
             sessions = [session for session in sessions if session.game_id == game_id]
-        return list(sessions)[:limit]
+        return self.sorted_by_date(list(sessions))[:limit]
 
     def filter_sessions(self, username: str | None = None, game_id: str | None = None, result: str | None = None, limit: int = 25) -> list[GameSession]:
         # TODO (DONE)(HISTORY INDEX): Add date range and outcome indexes for scale.

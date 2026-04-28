@@ -13,7 +13,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <csignal>
+#include <ctime>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -46,6 +48,8 @@ namespace {
 
 const int kAllowedPorts[] = {50068, 50069, 50075, 50082};
 const int kDefaultPort = 50068;
+const int kSocketPollTimeoutMs = 2000;
+const int kStalePlayerTimeoutSeconds = 90;
 std::atomic<bool> g_running(true);
 
 struct PlayerState {
@@ -130,6 +134,29 @@ void close_socket(SocketHandle socket_handle) {
 #endif
 }
 
+void set_socket_timeout(SocketHandle socket_handle) {
+#ifdef _WIN32
+    DWORD timeout_ms = kSocketPollTimeoutMs;
+    setsockopt(socket_handle, SOL_SOCKET, SO_RCVTIMEO,
+               reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
+#else
+    timeval timeout;
+    timeout.tv_sec = kSocketPollTimeoutMs / 1000;
+    timeout.tv_usec = (kSocketPollTimeoutMs % 1000) * 1000;
+    setsockopt(socket_handle, SOL_SOCKET, SO_RCVTIMEO,
+               reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+#endif
+}
+
+bool socket_timed_out() {
+#ifdef _WIN32
+    int error = WSAGetLastError();
+    return error == WSAETIMEDOUT || error == WSAEWOULDBLOCK;
+#else
+    return errno == EAGAIN || errno == EWOULDBLOCK;
+#endif
+}
+
 void update_player_from_message(int player_id, const std::string& line) {
     std::vector<std::string> parts = split_pipe(line);
     if (parts.size() < 5 || parts[0] != "UPDATE") {
@@ -161,6 +188,7 @@ void update_player_from_message(int player_id, const std::string& line) {
 }
 
 void client_thread(SocketHandle client_socket) {
+    set_socket_timeout(client_socket);
     int player_id = g_next_player_id.fetch_add(1);
     {
         std::lock_guard<std::mutex> lock(g_players_mutex);
@@ -175,11 +203,19 @@ void client_thread(SocketHandle client_socket) {
 
     std::string buffer;
     char recv_buffer[4096];
+    std::time_t last_seen = std::time(nullptr);
     while (g_running.load()) {
         int received = recv(client_socket, recv_buffer, sizeof(recv_buffer) - 1, 0);
         if (received <= 0) {
+            if (socket_timed_out()) {
+                if (std::time(nullptr) - last_seen > kStalePlayerTimeoutSeconds) {
+                    break;
+                }
+                continue;
+            }
             break;
         }
+        last_seen = std::time(nullptr);
 
         recv_buffer[received] = '\0';
         buffer += recv_buffer;
@@ -238,6 +274,7 @@ int main(int argc, char* argv[]) {
     int option_value = 1;
     setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR,
                reinterpret_cast<const char*>(&option_value), sizeof(option_value));
+    set_socket_timeout(server_socket);
 
     sockaddr_in address;
     std::memset(&address, 0, sizeof(address));
@@ -270,6 +307,9 @@ int main(int argc, char* argv[]) {
             &client_length
         );
         if (client_socket == INVALID_SOCKET_HANDLE) {
+            if (socket_timed_out()) {
+                continue;
+            }
             if (g_running.load()) {
                 std::cerr << "Accept failed." << std::endl;
             }

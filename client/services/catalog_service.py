@@ -4,6 +4,7 @@ from client.models import Game, HomeRows, Player, PlatformStats
 from client.placeholders.sorting_algorithms import SortingHooks
 from datastructures.graph import Graph
 from datastructures.hash_table import ChainedHashTable
+from .recommendation_service import RecommendationService
 
 
 class CatalogService:
@@ -82,17 +83,19 @@ class CatalogService:
         # TODO (DONE)(SORTING): Route to placeholders/sorting_algorithms.py.
         return self.sorting.sort_catalog(games, sort_by)
 
-    def get_home_rows(self, player: Player | None) -> HomeRows:
-        _ = player
+    def get_home_rows(self, player: Player | None, recommendations: RecommendationService | None = None) -> HomeRows:
         games = self.get_games()
         by_id = self.games
-        # TODO (DONE)(GRAPH): Use stable tag/genre relationships for recommendations.
-        # TODO (DONE)(SCALE): Use cached service results rather than screen-time sorting.
+        # Home rows use prebuilt history/recommendation indexes when available.
+        # The deterministic fallback keeps partial tests working when only the
+        # catalog service is constructed.
         popular = self.sort_games(games, "players_now")[:5]
+        recently = recommendations.recently_played(player, 5) if recommendations else popular
+        recommended = recommendations.recommended(player, 5) if recommendations else popular
         return HomeRows(
             continue_playing=[by_id["scorpions-arena"], by_id["sky-raiders"], by_id["turbo-sprint"]],
-            recently_played=[by_id["crystal-run"], by_id["logic-lab"], by_id["castle-quest"], by_id["block-arena"]],
+            recently_played=recently,
             popular_now=popular,
-            recommended=[by_id["circuit-chef"], by_id["astro-miners"], by_id["tiny-tactics"], by_id["buddy-bots"]],
+            recommended=recommended,
             featured=[game for game in games if game.team_game] + [by_id["neon-strikers"]],
         )

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 import socket
 from time import time
 
 
 ALLOWED_SERVER_PORTS = (50068, 50069, 50075, 50082)
+DEFAULT_SERVER_HOST = "127.0.0.1"
+DEFAULT_SERVER_PORT = 50068
 
 
 def is_allowed_port(port: int) -> bool:
@@ -18,30 +21,76 @@ def is_allowed_port(port: int) -> bool:
 
 
 def normalize_allowed_port(port: int) -> int:
-    """Return an allowed class port, falling back to Joy's assigned port."""
+    """Return an allowed class port, falling back to the project default."""
 
     try:
         parsed_port = int(port)
     except (TypeError, ValueError):
-        return 50068
-    return parsed_port if parsed_port in ALLOWED_SERVER_PORTS else 50068
+        return DEFAULT_SERVER_PORT
+    return parsed_port if parsed_port in ALLOWED_SERVER_PORTS else DEFAULT_SERVER_PORT
+
+
+def _env_host(role: str) -> str:
+    """Read host from env, defaulting to localhost for SSH tunnels."""
+
+    return (
+        os.environ.get(f"SCORPIONS_{role}_HOST")
+        or os.environ.get("SCORPIONS_SERVER_HOST")
+        or DEFAULT_SERVER_HOST
+    ).strip() or DEFAULT_SERVER_HOST
+
+
+def _env_port(role: str) -> int:
+    """Read an approved local forwarded port from env."""
+
+    return normalize_allowed_port(
+        os.environ.get(f"SCORPIONS_{role}_PORT")
+        or os.environ.get("SCORPIONS_SERVER_PORT")
+        or DEFAULT_SERVER_PORT
+    )
 
 
 @dataclass
 class ServerConnectionInfo:
-    """Future C++ backend connection settings."""
+    """Connection settings for a locally forwarded server endpoint.
+
+    For SSH tunneling, host normally stays localhost/127.0.0.1. The local SSH
+    client listens on this port and forwards traffic to the real ECE machine.
+    """
 
     # server host address
-    host: str = "127.0.0.1"
+    host: str = DEFAULT_SERVER_HOST
 
     # server port number
-    port: int = 50068
+    port: int = DEFAULT_SERVER_PORT
 
     # communication protocol (tcp/udp/etc.)
     protocol: str = "tcp"
 
     def __post_init__(self) -> None:
         self.port = normalize_allowed_port(int(self.port))
+
+    @classmethod
+    def from_environment(cls, role: str = "GAME") -> "ServerConnectionInfo":
+        """Build connection settings from SCORPIONS_<ROLE>_* variables."""
+
+        return cls(host=_env_host(role), port=_env_port(role))
+
+
+class PlatformConnectionInfo(ServerConnectionInfo):
+    """Platform API tunnel endpoint for login/search/leaderboards."""
+
+    @classmethod
+    def from_environment(cls) -> "PlatformConnectionInfo":
+        return cls(host=_env_host("PLATFORM"), port=_env_port("PLATFORM"))
+
+
+class GameServerConnectionInfo(ServerConnectionInfo):
+    """Gameplay tunnel endpoint for live game state."""
+
+    @classmethod
+    def from_environment(cls) -> "GameServerConnectionInfo":
+        return cls(host=_env_host("GAME"), port=_env_port("GAME"))
 
 
 @dataclass
@@ -116,7 +165,7 @@ class CppServerClient:
 
     def __init__(self, connection: ServerConnectionInfo | None = None) -> None:
         # store connection settings
-        self.connection = connection or ServerConnectionInfo()
+        self.connection = connection or GameServerConnectionInfo.from_environment()
 
         # track connection state
         self.connected = False
@@ -180,3 +229,8 @@ class CppServerClient:
 
         # ignore inputs for now
         _ = (channel, message)
+
+    def disconnect(self) -> None:
+        """Clear client connection state after a session ends."""
+
+        self.connected = False

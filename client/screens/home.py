@@ -11,14 +11,13 @@ from .base_screen import BaseScreen
 class HomeScreen(BaseScreen):
     def enter(self) -> None:
         super().enter()
-        # TODO(DATA STRUCTURES): Replace mock rows with recommendation,
-        # recent-history, and popularity queries from final structures.
         rows = self.app.backend.get_home_rows(self.app.current_player)
+        has_history = self.app.backend.has_player_history(self.app.current_player)
         self.row_specs = [
             ("Continue Playing", rows.continue_playing, 202),
-            ("Recently Played", rows.recently_played, 310),
+            ("Recently Played" if has_history else "Popular Right Now", rows.recently_played, 310),
             ("Popular Right Now", rows.popular_now, 418),
-            ("Recommended For You", rows.recommended, 526),
+            ("Recommended For You" if has_history else "Top Rated / Popular Games", rows.recommended, 526),
             ("New / Featured", rows.featured, 634),
         ]
         for _, games, y in self.row_specs:

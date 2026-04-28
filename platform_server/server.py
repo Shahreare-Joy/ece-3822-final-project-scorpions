@@ -15,6 +15,7 @@ from .leaderboard import LeaderboardService
 from .persistence import PersistenceService
 from .search import SearchService
 from .game_registry import all_registered_games
+from .session_manager import SessionManager
 from .session_results import SessionResultProcessor
 
 
@@ -30,6 +31,7 @@ class PlatformServer:
         self.history = HistoryService()
         self.leaderboard = LeaderboardService()
         self.search = SearchService()
+        self.sessions = SessionManager()
 
         # load static game registry
         self.game_registry = all_registered_games()
@@ -100,6 +102,12 @@ class PlatformServer:
 
         # return startup status and dataset report
         return {"storage_ok": storage_ok, **dataset_report}
+
+    def shutdown(self) -> dict[str, object]:
+        """Gracefully release Python-side active session state."""
+
+        closed_sessions = self.sessions.shutdown()
+        return {"closed_sessions": closed_sessions, "message": "Platform server facade shut down cleanly."}
 
 
 def main() -> None:

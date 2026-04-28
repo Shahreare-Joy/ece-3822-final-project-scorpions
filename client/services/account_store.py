@@ -34,7 +34,7 @@ def _default_demo_records(count: int = 22) -> list[dict[str, Any]]:
 
     _ = count
     return [
-        _class_account("evan", "Evan", "ave428"),
+        _class_account("evan", "Evan", "vae382"),
         _class_account("ibrahim", "Ibrahim", "bri517"),
         _class_account("mennah", "Mennah", "enm246"),
         _class_account("deven", "Deven", "ved391"),

@@ -85,6 +85,7 @@ def check_imports() -> None:
         "platform_server.server",
         "platform_server.data_ingest",
         "platform_server.session_results",
+        "platform_server.session_manager",
     ]
     for module_name in modules:
         importlib.import_module(module_name)
@@ -147,10 +148,10 @@ def check_demo_accounts_search_and_chat() -> None:
     from client.services import MockArcadeBackend
 
     backend = MockArcadeBackend()
-    login = backend.authenticate("joy", "123456")
+    login = backend.authenticate("shahreare", "has068")
     if not login.success:
-        raise AssertionError("Demo login joy / 123456 should work.")
-    duplicate = backend.create_account("joy", "Joy Again", "123456", "123456", "USA")
+        raise AssertionError("Demo login shahreare / has068 should work.")
+    duplicate = backend.create_account("shahreare", "Shahreare Again", "has068", "has068", "USA")
     if duplicate.success:
         raise AssertionError("Duplicate username should be rejected.")
     results = backend.search_players("scorpion", 25)
@@ -177,7 +178,7 @@ def check_pygame_ui() -> None:
     pygame.init()
     try:
         app = ArcadeApp()
-        app.current_player = app.backend.get_player("joy")
+        app.current_player = app.backend.get_player("shahreare")
         for screen_name in [
             ScreenName.WELCOME,
             ScreenName.LOGIN,

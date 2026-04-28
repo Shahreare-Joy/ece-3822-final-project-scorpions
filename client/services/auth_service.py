@@ -7,8 +7,9 @@ from .account_store import DemoAccountStore
 class AuthService:
     """Client-facing auth service backed by persistent local demo accounts.
 
-    TODO(ACCOUNTS/C++): Replace internals with real server auth and token
-    handling. Keep the method names stable so UI screens do not change.
+    The persistent account file is the source of truth for demo login. The
+    shared player directory is still used for search/profile display, but mock
+    players must not become alternate passwords.
     """
 
     def __init__(self, players: dict[str, Player], account_store: DemoAccountStore | None = None) -> None:
@@ -30,8 +31,12 @@ class AuthService:
             return AuthResult(False, "Server unavailable. Please try again later.")
         if not username or not password:
             return AuthResult(False, "Please fill in all login fields.")
-        self.refresh_accounts()
-        player = self.players.get(username)
+        if self.account_store is not None:
+            account_players = self.account_store.load_players()
+            self.players.update(account_players)
+            player = account_players.get(username)
+        else:
+            player = self.players.get(username)
         if player is None or player.password != password:
             return AuthResult(False, "Invalid username or password.")
         return AuthResult(True, f"Welcome back, {player.display_name}.", player)

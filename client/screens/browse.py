@@ -72,13 +72,31 @@ class BrowseScreen(BaseScreen):
         )
 
         # create game cards from visible games
+        rows = self.app.backend.get_home_rows(self.app.current_player)
+        has_history = self.app.backend.has_player_history(self.app.current_player)
+        self.personalized_rows = [
+            ("Recently Played" if has_history else "Popular Right Now", rows.recently_played, 302),
+            ("Recommended For You" if has_history else "Top Rated / Popular Games", rows.recommended, 410),
+        ]
+        for _, row_games, y in self.personalized_rows:
+            for index, game in enumerate(row_games[:5]):
+                self.cards.append(
+                    GameCard(
+                        (30 + index * 230, y, 218, 78),
+                        game,
+                        self.app.open_game,
+                        self.app.fonts,
+                        compact=True,
+                    )
+                )
+
         games = self.visible_games()
-        for index, game in enumerate(games[:15]):
+        for index, game in enumerate(games[:5]):
             row = index // 5
             col = index % 5
             self.cards.append(
                 GameCard(
-                    (30 + col * 230, 312 + row * 126, 218, 112),
+                    (30 + col * 230, 532 + row * 126, 218, 112),
                     game,
                     self.app.open_game,
                     self.app.fonts
@@ -172,8 +190,12 @@ class BrowseScreen(BaseScreen):
         for button in self.buttons:
             button.draw(self.app.screen)
 
+        # draw personalized rows from indexed history/recommendation services
+        for title, _, y in self.personalized_rows:
+            draw_text(self.app.screen, title, self.app.fonts.body, Palette.TEXT, 30, y - 25)
+
         # draw game cards section
-        draw_text(self.app.screen, "Games", self.app.fonts.body, Palette.TEXT, 30, 282)
+        draw_text(self.app.screen, "Games", self.app.fonts.body, Palette.TEXT, 30, 502)
         for card in self.cards:
             card.draw(self.app.screen)
 

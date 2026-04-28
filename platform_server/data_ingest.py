@@ -19,10 +19,10 @@ DATASET_FILES = {
 }
 
 REQUIRED_FIELDS = {
-    "players": {"player_id", "username", "display_name", "country", "created_at", "favorite_genre", "level", "total_score", "games_played", "wins", "losses"},
-    "sessions": {"session_id", "player_id", "username", "game_id", "started_at", "ended_at", "duration_seconds", "score", "outcome"},
-    "chat_messages": {"message_id", "session_id", "player_id", "game_id", "timestamp", "message", "sent_at", "text"},
-    "game_catalog": {"game_id", "title", "creator", "genre", "description", "playable", "total_plays", "players_now", "currently_playing"},
+    "players": {"player_id", "username", "display_name", "region", "created_at", "favorite_genre", "skill_rating", "total_score", "games_played", "avatar", "account_status"},
+    "sessions": {"session_id", "player_id", "username", "game_id", "game_title", "started_at", "duration_seconds", "score", "outcome", "platform", "server_region"},
+    "chat_messages": {"message_id", "session_id", "player_id", "username", "game_id", "sent_at", "text", "moderation_status"},
+    "game_catalog": {"game_id", "title", "creator", "genre", "playable", "launch_path", "thumbnail_path", "screenshot_paths", "created_at", "last_updated", "total_plays", "currently_playing", "min_players", "max_players", "supports_multiplayer", "status", "tags"},
 }
 
 EXPECTED_MINIMUM_COUNTS = {
@@ -110,6 +110,13 @@ class DataIngestService:
             # additional checks for chat messages
             if dataset_name == "chat_messages" and not str(row.get("text", "")).strip():
                 errors.append(f"chat_messages[{index}] has empty text")
+
+            # additional checks for catalog entries
+            if dataset_name == "game_catalog":
+                if int(row.get("min_players", 0) or 0) < 1:
+                    errors.append(f"game_catalog[{index}] has invalid min_players")
+                if int(row.get("max_players", 0) or 0) < int(row.get("min_players", 0) or 0):
+                    errors.append(f"game_catalog[{index}] has max_players below min_players")
 
         return errors
 

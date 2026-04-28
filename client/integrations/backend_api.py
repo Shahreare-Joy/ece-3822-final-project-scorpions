@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from platform_server.server import PlatformServer
 
+from .cpp_server import PlatformConnectionInfo
+
 
 class BackendApiHook:
     """Local direct-call hook for the platform API."""
 
     def __init__(self, server: PlatformServer | None = None) -> None:
+        # Separate platform endpoint settings from live game-server settings.
+        # The current facade is direct-call, but these values document and
+        # preserve the tunnel configuration for the future socket/HTTP wrapper.
+        self.connection = PlatformConnectionInfo.from_environment()
+
         # use provided server or create a new one
         self.server = server or PlatformServer()
 

@@ -66,6 +66,24 @@ class ChatService:
     def get_chat_preview(self, session_id: str = "global", limit: int = 3) -> list[ChatMessage]:
         return self.get_recent_messages(session_id, limit)
 
+    def close_session(self, session_id: str, remove_disk_file: bool = True) -> None:
+        """Drop local chat state when a player leaves a game session.
+
+        The real C++ relay is still scaffolded, so this cleans the local
+        per-session buffer and optional file-backed bridge used by subprocess
+        games. It prevents abandoned local sessions from accumulating forever.
+        """
+
+        safe_id = session_id.strip() or "global"
+        self.session_chats.pop(safe_id, None)
+        if remove_disk_file:
+            path = self._session_path(safe_id)
+            if path is not None:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
     def _session_path(self, session_id: str) -> Path | None:
         if self.storage_dir is None:
             return None

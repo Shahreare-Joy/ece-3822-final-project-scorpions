@@ -85,6 +85,13 @@ class ChatService:
         # clamp limit and return recent records
         return channel.recent(max(1, min(int(limit), self.capacity)))
 
+    def close_session(self, session_id: str) -> bool:
+        """Remove a session's bounded chat buffer after all players leave."""
+
+        if not session_id:
+            return False
+        return self._channels.remove(session_id)
+
     def _get_channel(self, session_id: str) -> CircularBuffer:
         '''get existing channel or create a new one'''
 

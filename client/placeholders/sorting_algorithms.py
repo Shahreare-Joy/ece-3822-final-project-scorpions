@@ -16,7 +16,7 @@ class SortingHooks:
         key = self._key_for(sort_by)
 
         # descending for popularity-style fields
-        return mergesort(records, key=key, reverse=sort_by in {"players", "plays", "popularity", "total_plays"})
+        return mergesort(records, key=key, reverse=sort_by in {"players", "players_now", "plays", "popularity", "total_plays"})
 
     def sort_leaderboard(self, records: list[object], sort_by: str) -> list[object]:
         '''sort leaderboard records using heap sort'''
