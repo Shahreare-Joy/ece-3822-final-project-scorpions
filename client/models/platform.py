@@ -22,6 +22,7 @@ class HomeRows:
     popular_now: list[Game]
     recommended: list[Game]
     featured: list[Game]
+    coming_soon: list[Game]
 
 
 @dataclass
@@ -29,4 +30,3 @@ class AuthResult:
     success: bool
     message: str
     player: Player | None = None
-

@@ -9,10 +9,29 @@ from .base_screen import BaseScreen
 
 
 class ProfileScreen(BaseScreen):
-    def draw(self) -> None:
-        player = self.app.profile_player or self.app.current_player
+    def enter(self) -> None:
+        super().enter()
+        self.player_sessions = None
+        self.profile_summary = None
+        self._refresh_cached_data()
+
+    def _profile_player(self):
+        return self.app.profile_player or self.app.current_player
+
+    def _refresh_cached_data(self) -> None:
+        player = self._profile_player()
         if player is None:
             return
+        self.profile_summary = self.app.backend.get_cached_profile_summary(player)
+        self.player_sessions = self.app.backend.get_cached_player_sessions(player.username, limit=5)
+        if self.player_sessions is None and not self.app.backend.is_preload_loading(player):
+            self.app.backend.start_post_login_preload(player)
+
+    def draw(self) -> None:
+        player = self._profile_player()
+        if player is None:
+            return
+        self._refresh_cached_data()
         subtitle = "Your arcade profile, recent sessions, stats, and session chat preview."
         if self.app.profile_player is not None and self.app.profile_player != self.app.current_player:
             subtitle = "Public player profile, recent sessions, stats, and session chat preview."
@@ -29,7 +48,13 @@ class ProfileScreen(BaseScreen):
         draw_badge(self.app.screen, player.status, pygame.Rect(text_x, left.y + 100, 115, 28), self.app.fonts.small, Palette.SUCCESS if player.status == "Online" else Palette.WARNING)
         draw_wrapped(self.app.screen, player.bio, self.app.fonts.small, Palette.TEXT, pygame.Rect(left.x + 24, left.y + 148, left.width - 48, 58), max_lines=2)
         draw_text(self.app.screen, "Player Stats", self.app.fonts.body, Palette.TEXT, right.x + 18, right.y + 20)
-        stats = [("Level", player.level), ("Favorite Genre", player.favorite_genre), ("Total Sessions", f"{player.total_sessions:,}"), ("Total Wins", f"{player.total_wins:,}")]
+        summary = self.profile_summary or {}
+        stats = [
+            ("Level", summary.get("level", player.level)),
+            ("Favorite Genre", summary.get("favorite_genre", player.favorite_genre)),
+            ("Total Sessions", f"{int(summary.get('games_played', player.total_sessions) or 0):,}"),
+            ("Total Wins", f"{int(summary.get('wins', player.total_wins) or 0):,}"),
+        ]
         for index, (label, value) in enumerate(stats):
             x = right.x + 20 + (index % 2) * 300
             y = right.y + 62 + (index // 2) * 72
@@ -41,8 +66,11 @@ class ProfileScreen(BaseScreen):
         draw_panel(self.app.screen, history)
         draw_panel(self.app.screen, chat)
         draw_text(self.app.screen, "Recent Sessions", self.app.fonts.body, Palette.TEXT, history.x + 16, history.y + 14)
-        # TODO(HISTORY): Replace this mock lookup with an indexed player-session query.
-        player_sessions = self.app.backend.get_sessions(username=player.username, limit=5)
+        player_sessions = self.player_sessions
+        if player_sessions is None:
+            draw_text(self.app.screen, "Loading recent sessions...", self.app.fonts.small, Palette.MUTED, history.x + 18, history.y + 56)
+            draw_text(self.app.screen, "Loading chat preview...", self.app.fonts.small, Palette.MUTED, chat.x + 18, chat.y + 100)
+            return
         for index, session in enumerate(player_sessions):
             game = self.app.backend.get_game(session.game_id)
             row = pygame.Rect(history.x + 14, history.y + 50 + index * 34, history.width - 28, 28)

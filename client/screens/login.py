@@ -31,6 +31,7 @@ class LoginScreen(BaseScreen):
             return
         self.app.current_player = result.player
         self.app.navigate(ScreenName.HOME, result.message, Palette.SUCCESS)
+        self.app.backend.start_post_login_preload(result.player)
 
     def clear(self) -> None:
         self.username.text = ""

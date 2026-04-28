@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import sys
 
 import pygame
@@ -8,6 +9,7 @@ from client.components import Button, build_nav_buttons, draw_nav_bar, make_font
 from client.core import AppState, FPS, HEIGHT, TITLE, WIDTH, Palette, ScreenName, draw_background_grid
 from client.core.screen_registry import create_screens
 from client.models import Game, Player
+from client.runtime_config import RuntimeConfig
 from client.services import MockArcadeBackend
 
 
@@ -20,19 +22,25 @@ class ArcadeApp:
     top-level platform_server/, datastructures/, and algorithms/ folders.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, config: RuntimeConfig | None = None) -> None:
         pygame.init()
         pygame.font.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption(TITLE)
         self.clock = pygame.time.Clock()
         self.fonts = make_fonts()
-        self.backend = MockArcadeBackend()
+        self.config = config or RuntimeConfig.local()
+        self.backend = MockArcadeBackend(self.config)
         self.state = AppState()
 
         self.screens = create_screens(self)
         self.nav_buttons: list[Button] = []
         self.navigate(ScreenName.WELCOME)
+        if self.config.is_server_mode:
+            if self.backend.local_fallback_active:
+                self.show_message("Server Mode requested, but remote platform is unavailable. Using Local Mode fallback.", Palette.WARNING)
+            else:
+                self.show_message(f"Server Mode configured for {self.config.server_host}:{self.config.platform_port}.", Palette.SUCCESS)
 
     @property
     def running(self) -> bool:
@@ -142,19 +150,33 @@ class ArcadeApp:
         self.screens[self.current_screen].handle_event(event)
 
     def run(self) -> None:
-        while self.running:
-            dt = self.clock.tick(FPS)
-            for event in pygame.event.get():
-                self.handle_event(event)
-            self.screens[self.current_screen].update(dt)
-            self.draw_background()
-            self.draw_nav()
-            self.screens[self.current_screen].draw()
-            pygame.display.flip()
-
-        pygame.quit()
+        try:
+            while self.running:
+                dt = self.clock.tick(FPS)
+                for event in pygame.event.get():
+                    self.handle_event(event)
+                self.screens[self.current_screen].update(dt)
+                self.draw_background()
+                self.draw_nav()
+                self.screens[self.current_screen].draw()
+                pygame.display.flip()
+        finally:
+            self.backend.close()
+            pygame.quit()
         sys.exit()
 
 
-def main() -> None:
-    ArcadeApp().run()
+def parse_runtime_config(argv: list[str] | None = None) -> RuntimeConfig:
+    parser = argparse.ArgumentParser(description="Run Scorpions Arcade in local or server mode.")
+    parser.add_argument("--server", help="Server hostname or IP for ECE/server mode.")
+    parser.add_argument("--port", type=int, default=50068, help="Python platform server port.")
+    parser.add_argument("--game-port", type=int, help="Optional C++ gameplay server port. Defaults to --port.")
+    parser.add_argument("--serializer", choices=("text", "json"), default="text", help="Network message format for server mode.")
+    args = parser.parse_args(argv)
+    if not args.server:
+        return RuntimeConfig.local()
+    return RuntimeConfig.server(args.server, args.port, args.serializer, gameplay_port=args.game_port)
+
+
+def main(argv: list[str] | None = None) -> None:
+    ArcadeApp(parse_runtime_config(argv)).run()

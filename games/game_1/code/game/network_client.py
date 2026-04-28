@@ -56,7 +56,9 @@ class NetworkClient:
         try:
             print(f"Connecting to {self.server_host}:{self.server_port}...")
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.settimeout(1.0)
             self.sock.connect((self.server_host, self.server_port))
+            self.sock.settimeout(0.5)
             self.connected = True
             self.running = True
             
@@ -89,10 +91,12 @@ class NetworkClient:
                     line, buffer = buffer.split('\n', 1)
                     self._process_message(line)
                     
-            except Exception as e:
+            except socket.timeout:
+                continue
+            except OSError as e:
                 if self.running:
                     print(f"Receive error: {e}")
-                    self.connected = False
+                self.connected = False
                 break
     
     def _process_message(self, msg):
@@ -127,6 +131,13 @@ class NetworkClient:
     def _deserialize_player(self, data):
         """Deserialize player data based on format"""
         try:
+            # The current C++ demo relay broadcasts STATE frames as
+            # pipe-delimited text even when the arcade was launched with
+            # --serializer json for the platform layer. Accept that text frame
+            # here so server-mode demos still show other players instead of
+            # silently dropping updates.
+            if '|' in data and not data.lstrip().startswith('{'):
+                return self._deserialize_text(data)
             if self.serializer == 'text':
                 return self._deserialize_text(data)
             elif self.serializer == 'json':
@@ -215,9 +226,9 @@ class NetworkClient:
         if self.connected and self.my_player_id is not None:
             msg = f"UPDATE|{self.my_player_id}|{x}|{y}|{self.player_name}|{character_type}|{status}\n"
             try:
-                self.sock.send(msg.encode('utf-8'))
-            except:
-                self.connected = False
+                self.sock.sendall(msg.encode('utf-8'))
+            except OSError:
+                self.disconnect()
     
     def get_updates(self):
         """Get most recent update from queue"""
@@ -230,8 +241,16 @@ class NetworkClient:
         return None
     
     def disconnect(self):
-        """Disconnect from server"""
+        """Disconnect from server and stop send/receive loops."""
         self.running = False
         self.connected = False
         if self.sock:
-            self.sock.close()
+            try:
+                self.sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+            self.sock = None

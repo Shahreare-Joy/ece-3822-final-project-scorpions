@@ -99,7 +99,7 @@ class Level:
         self.enemies = pygame.sprite.Group()
         self.create_enemies()
 
-        # Fruit Collection round state. These values are read by main.py for
+# Fruit Drop Rush round state. These values are read by main.py for
         # the game-over screen and final arcade session-result payload.
         self.score = 0
         self.fruits_collected = 0
@@ -314,7 +314,7 @@ class Level:
             print("Check your Waypoint and PatrolPath implementations!")
 
     # ------------------------------------------------------------------
-    # Fruit Collection rules
+# Fruit Drop Rush rules
     # ------------------------------------------------------------------
 
     def create_fruits(self):
@@ -554,7 +554,7 @@ class Level:
             self.font.render(f"HP {self.player.hp}/{self.player.max_hp}", True, (255, 255, 255)),
             (10 + HEALTH_BAR_WIDTH + 8, 70))
 
-        # Fruit Collection score and countdown
+# Fruit Drop Rush score and countdown
         self.display_surface.blit(
             self.font.render(f"Score: {self.score}", True, (255, 255, 255)), (10, 100))
         self.display_surface.blit(

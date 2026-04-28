@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""One-command scaffold verification for Scorpions Arcade.
+"""One-command project verification for Scorpions Arcade.
 
 Purpose:
     Give the team a safe pre-merge/pre-submission check that verifies the
@@ -9,9 +9,9 @@ Purpose:
 
 Important:
     This is not a replacement for Kevin's final tests/benchmarks. It is a
-    lightweight integration smoke test. Keep TODO comments and unfinished
-    backend/data-structure placeholders in place; this script only checks that
-    the scaffold is wired together and runnable.
+    lightweight integration smoke test. It checks that the project is wired
+    together, the large dataset is present, and the connected game entries are
+    launch-ready.
 
 Run from the project root:
     python tools/verify_project.py
@@ -37,6 +37,7 @@ PYTHON_SCAN_ROOTS = [
     "algorithms",
     "benchmarks",
     "tests",
+    "games",
 ]
 
 EXPECTED_DATASET_COUNTS = {
@@ -124,10 +125,10 @@ def check_catalog_and_launcher() -> None:
         ready = "ready" if info["ready"] else "not ready yet"
         print(f"{game_id}: {ready} - {info['message']}")
 
-    # TODO(GAME INTEGRATION): Once all four games are pasted and tested, turn
-    # this informational status into a stricter requirement for final submit.
-    if not status["scorpions-arena"]["ready"]:
-        raise AssertionError("Fruit Drop Rush / game_1 should be ready in the current scaffold.")
+    required_ready = ("scorpions-arena", "sky-raiders", "turbo-sprint")
+    missing = [game_id for game_id in required_ready if not status[game_id]["ready"]]
+    if missing:
+        raise AssertionError(f"Expected at least the first three team games to be ready; missing: {missing}")
 
 
 def check_thumbnail_assets() -> None:
@@ -215,7 +216,7 @@ def main() -> None:
     check_thumbnail_assets()
     check_demo_accounts_search_and_chat()
     check_pygame_ui()
-    print("\nAll scaffold verification checks passed.")
+    print("\nAll project verification checks passed.")
 
 
 if __name__ == "__main__":

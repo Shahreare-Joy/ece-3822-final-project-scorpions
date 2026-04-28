@@ -2,7 +2,7 @@ from .avatar import draw_player_avatar
 from .button import Button
 from .fonts import FontSet, make_fonts
 from .game_card import GameCard
-from .image_assets import load_image, resolve_asset_path
+from .image_assets import load_image, load_image_cover, resolve_asset_path
 from .input_box import InputBox
 from .list_row import draw_history_row, draw_list_row
 from .navbar import build_nav_buttons, draw_nav_bar, nav_items
@@ -18,6 +18,7 @@ __all__ = [
     "GameCard",
     "InputBox",
     "load_image",
+    "load_image_cover",
     "draw_badge",
     "draw_history_row",
     "draw_list_row",

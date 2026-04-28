@@ -187,7 +187,7 @@ def generate_game_catalog(rng: random.Random, count: int) -> list[dict[str, obje
 
     # fixed team games shown first in catalog
     team_games = [
-        ("game_1", "Fruit Collection", "ECE 3822 Team Scorpions", "Arcade", ["collection", "fruit", "action"]),
+    ("game_1", "Fruit Drop Rush", "ECE 3822 Team Scorpions", "Arcade", ["collection", "fruit", "action"]),
         ("game_2", "Escape the City", "ECE 3822 Team Scorpions", "Action", ["escape", "racing", "city"]),
         ("game_3", "Forgotten", "ECE 3822 Team Scorpions", "Adventure", ["mystery", "exploration", "story"]),
         ("game_4", "Mystical Bamboo", "ECE 3822 Team Scorpions", "Platformer", ["bamboo", "routes", "precision"]),

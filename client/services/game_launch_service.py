@@ -132,6 +132,9 @@ class GameLaunchService:
         env["SCORPIONS_SERVER_PORT"] = str(self.connection.port)
         env["SCORPIONS_GAME_HOST"] = self.connection.host
         env["SCORPIONS_GAME_PORT"] = str(self.connection.port)
+        env["SCORPIONS_GAME_SERIALIZER"] = self.connection.serializer
+        env["SCORPIONS_SERIALIZER"] = self.connection.serializer
+        env["SCORPIONS_ALLOW_ANY_GAME_PORT"] = "1" if not self.connection.enforce_allowed_ports else "0"
         env["SCORPIONS_PLAYER"] = str(player_info.get("username", "guest"))
         env["SCORPIONS_DISPLAY_NAME"] = str(player_info.get("display_name", "Guest"))
         env["SCORPIONS_CHAT_ENABLED"] = "1"
@@ -226,6 +229,7 @@ class GameLaunchService:
             "session_id": request.session_id,
             "server_host": self.connection.host,
             "server_port": self.connection.port,
+            "serializer": self.connection.serializer,
             "requested_mode": request.requested_mode,
             "result_path": str(result_path) if result_path else "",
             # TODO(C++): Add player_token and authoritative session settings

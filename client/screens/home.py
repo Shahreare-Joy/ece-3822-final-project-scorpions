@@ -11,18 +11,28 @@ from .base_screen import BaseScreen
 class HomeScreen(BaseScreen):
     def enter(self) -> None:
         super().enter()
-        rows = self.app.backend.get_home_rows(self.app.current_player)
-        has_history = self.app.backend.has_player_history(self.app.current_player)
-        self.row_specs = [
-            ("Continue Playing", rows.continue_playing, 202),
-            ("Recently Played" if has_history else "Popular Right Now", rows.recently_played, 310),
-            ("Popular Right Now", rows.popular_now, 418),
-            ("Recommended For You" if has_history else "Top Rated / Popular Games", rows.recommended, 526),
-            ("New / Featured", rows.featured, 634),
-        ]
+        # One backend function owns Home shelf labels and row contents so the
+        # screen does not switch sources after login, after preload, or after
+        # clicking through other screens.
+        visible_rows = self.app.backend.get_home_sections(self.app.current_player)
+        row_count = max(1, len(visible_rows))
+        shelf_top = 206
+        shelf_bottom = 744
+        if row_count <= 2:
+            card_h = 126
+        elif row_count == 3:
+            card_h = 118
+        elif row_count == 4:
+            card_h = 112
+        elif row_count == 5:
+            card_h = 88
+        else:
+            card_h = 68
+        row_gap = int((shelf_bottom - shelf_top - card_h) / max(1, row_count - 1)) if row_count > 1 else 0
+        self.row_specs = [(title, games, shelf_top + index * row_gap) for index, (title, games) in enumerate(visible_rows)]
         for _, games, y in self.row_specs:
             for index, game in enumerate(games[:5]):
-                self.cards.append(GameCard((30 + index * 230, y, 218, 78), game, self.app.open_game, self.app.fonts, compact=True))
+                self.cards.append(GameCard((30 + index * 230, y, 218, card_h), game, self.app.open_game, self.app.fonts, compact=True))
 
     def draw(self) -> None:
         player = self.app.current_player
@@ -39,7 +49,7 @@ class HomeScreen(BaseScreen):
         draw_text(self.app.screen, f"{stats.registered_players:,} players  |  {stats.total_sessions:,} all-time sessions", self.app.fonts.small, Palette.MUTED, stats_box.x + 16, stats_box.y + 58, max_width=320)
 
         for title, _, y in self.row_specs:
-            draw_text(self.app.screen, title, self.app.fonts.body, Palette.TEXT, 30, y - 25)
+            draw_text(self.app.screen, title, self.app.fonts.body, Palette.TEXT, 30, y - 24)
         for card in self.cards:
             card.draw(self.app.screen)
         self.draw_message()

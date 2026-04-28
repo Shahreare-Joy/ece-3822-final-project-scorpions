@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from client.models import Game, HomeRows, Player, PlatformStats
 from client.placeholders.sorting_algorithms import SortingHooks
 from datastructures.graph import Graph
@@ -84,18 +86,157 @@ class CatalogService:
         return self.sorting.sort_catalog(games, sort_by)
 
     def get_home_rows(self, player: Player | None, recommendations: RecommendationService | None = None) -> HomeRows:
-        games = self.get_games()
-        by_id = self.games
+        games = [game for game in self.get_games() if not self._is_temporary_game(game)]
+        playable = [game for game in games if game.playable]
+        normal_catalog = [game for game in games if self._is_normal_catalog_game(game)]
+
         # Home rows use prebuilt history/recommendation indexes when available.
         # The deterministic fallback keeps partial tests working when only the
-        # catalog service is constructed.
-        popular = self.sort_games(games, "players_now")[:5]
-        recently = recommendations.recently_played(player, 5) if recommendations else popular
-        recommended = recommendations.recommended(player, 5) if recommendations else popular
+        # catalog service is constructed. Rows are assembled from different
+        # candidate pools so Continue/Recent/Popular/Recommended do not become
+        # the same five cards with different headings.
+        has_real_history = recommendations.has_history(player) if recommendations else False
+        recent_candidates = recommendations.recently_played(player, 8) if has_real_history and recommendations else []
+        recent_candidates = [game for game in recent_candidates if not self._is_temporary_game(game)]
+        recently = self._unique_games(recent_candidates, 5)
+
+        popular_candidates = recommendations.popular_games(16) if recommendations else self.sort_games(normal_catalog, "players_now")
+        popular_candidates = self._playable_first(popular_candidates)
+        popular = self._fill_row(
+            popular_candidates,
+            self._playable_first(self.sort_games(normal_catalog, "players_now")),
+            limit=5,
+            avoid={game.game_id for game in recently},
+        )
+        if len(popular) < 3:
+            popular = self._fill_row(popular, self._playable_first(self.sort_games(normal_catalog, "players_now")), limit=5)
+
+        continue_playing = self._fill_row(
+            playable,
+            playable,
+            limit=5,
+            avoid={game.game_id for game in recently},
+            playable_only=True,
+        )
+
+        recommendation_candidates = recommendations.recommended(player, 16) if recommendations else popular_candidates
+        recommended = self._fill_row(
+            recommendation_candidates,
+            playable + normal_catalog,
+            limit=5,
+            avoid={game.game_id for game in recently + popular},
+        )
+        if len(recommended) < 3:
+            recommended = self._fill_row(recommended, playable + normal_catalog, limit=5, avoid={game.game_id for game in recently})
+        recommended = [self._label_catalog_only(game) for game in recommended]
+
+        featured_candidates = [
+            game
+            for game in normal_catalog
+            if game.playable
+            or game.status.lower() in {"new", "live event", "trending", "hot"}
+            or game.last_updated.lower() in {"updated today", "updated yesterday"}
+        ]
+        featured = self._fill_row(
+            featured_candidates,
+            self.sort_games(normal_catalog, "players_now"),
+            limit=5,
+            avoid={game.game_id for game in continue_playing + recently},
+        )
+        featured = [self._label_catalog_only(game) for game in featured]
+
+        coming_soon = self._fill_row(
+            [game for game in games if self._is_coming_soon_game(game)],
+            [game for game in games if not game.playable and not self._is_normal_catalog_game(game)],
+            limit=5,
+            allow_coming_soon=True,
+        )
+        coming_soon = [self._label_coming_soon(game) for game in coming_soon]
+
         return HomeRows(
-            continue_playing=[by_id["scorpions-arena"], by_id["sky-raiders"], by_id["turbo-sprint"]],
+            continue_playing=continue_playing,
             recently_played=recently,
             popular_now=popular,
             recommended=recommended,
-            featured=[game for game in games if game.team_game] + [by_id["neon-strikers"]],
+            featured=featured,
+            coming_soon=coming_soon,
         )
+
+    def _playable_first(self, games: list[Game]) -> list[Game]:
+        return sorted(games, key=lambda game: (game.playable, game.players_now, game.total_plays), reverse=True)
+
+    def _fill_row(
+        self,
+        primary: list[Game],
+        fallback: list[Game],
+        limit: int,
+        avoid: set[str] | None = None,
+        playable_only: bool = False,
+        allow_coming_soon: bool = False,
+    ) -> list[Game]:
+        avoid = avoid or set()
+        rows: list[Game] = []
+        seen: set[str] = set()
+        for game in [*primary, *fallback]:
+            if game.game_id in seen or game.game_id in avoid:
+                continue
+            if self._is_temporary_game(game):
+                continue
+            if playable_only and not game.playable:
+                continue
+            if self._is_coming_soon_game(game) and not allow_coming_soon:
+                continue
+            rows.append(game)
+            seen.add(game.game_id)
+            if len(rows) >= limit:
+                break
+        return rows
+
+    def _unique_games(self, games: list[Game], limit: int) -> list[Game]:
+        rows: list[Game] = []
+        seen: set[str] = set()
+        for game in games:
+            if game.game_id in seen or self._is_temporary_game(game):
+                continue
+            rows.append(game)
+            seen.add(game.game_id)
+            if len(rows) >= limit:
+                break
+        return rows
+
+    def _is_normal_catalog_game(self, game: Game) -> bool:
+        return not self._is_temporary_game(game) and not self._is_coming_soon_game(game)
+
+    def _is_temporary_game(self, game: Game) -> bool:
+        tags = {tag.lower() for tag in game.tags}
+        return (
+            game.game_id == "snake-test"
+            or "temporary" in tags
+            or "test-game" in tags
+            or "temporary" in game.status.lower()
+            or "test lab" in game.title.lower()
+        )
+
+    def _is_coming_soon_game(self, game: Game) -> bool:
+        status = game.status.lower()
+        tags = {tag.lower() for tag in game.tags}
+        return (
+            not game.playable
+            and (
+                game.team_game
+                or "pending" in status
+                or "coming" in status
+                or "integration" in status
+                or "coming-soon" in tags
+            )
+        )
+
+    def _label_catalog_only(self, game: Game) -> Game:
+        if game.playable or game.status.lower() in {"catalog only", "coming soon"}:
+            return game
+        return replace(game, status="Catalog only")
+
+    def _label_coming_soon(self, game: Game) -> Game:
+        if game.status.lower() == "coming soon":
+            return game
+        return replace(game, status="Coming soon")

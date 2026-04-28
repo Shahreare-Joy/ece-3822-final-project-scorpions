@@ -13,8 +13,8 @@ Recommended For You:
     Recommendations are deterministic, not random. The service counts the
     player's played genres/tags, follows a game co-play graph built from other
     players' histories, and adds small boosts for popularity/recent activity.
-    Playable games receive a boost, but catalog-only games can still rank when
-    they match the player's habits.
+    Playable games receive a boost, temporary test games are hidden, and
+    catalog-only games are only used as lower-priority fallback candidates.
 """
 
 from datetime import datetime
@@ -99,7 +99,7 @@ class RecommendationService:
             if node.game_id in seen:
                 continue
             game = self.games.get(node.game_id)
-            if game is None:
+            if game is None or self._is_temporary_game(game):
                 continue
             rows.append(game)
             seen.add(node.game_id)
@@ -132,6 +132,8 @@ class RecommendationService:
         co_play_scores = self._co_play_scores(played_nodes)
         scored: list[tuple[float, Game]] = []
         for game in self.games.values():
+            if self._is_temporary_game(game) or self._is_pending_game(game):
+                continue
             score = 0.0
             score += float(genre_scores.get(game.genre, 0) or 0) * 12.0
             score += sum(float(tag_scores.get(tag, 0) or 0) * 3.0 for tag in game.tags)
@@ -139,13 +141,15 @@ class RecommendationService:
             score += min(game.players_now, 3000) / 3000.0
             score += min(int(self._game_recent_activity.get(game.game_id, 0) or 0), 200) / 40.0
             if game.playable:
-                score += 7.5
+                score += 20.0
+            else:
+                score -= 4.0
             if game.game_id in played_games:
                 score -= 18.0 + float(played_counts.get(game.game_id, 0) or 0)
             if score > 0:
                 scored.append((score, game))
 
-        scored.sort(key=lambda item: (item[0], item[1].playable, item[1].players_now, item[1].title), reverse=True)
+        scored.sort(key=lambda item: (item[1].playable, item[0], item[1].players_now, item[1].title), reverse=True)
         recommendations = [game for _, game in scored[:limit]]
         return recommendations or self.popular_games(limit)
 
@@ -185,8 +189,9 @@ class RecommendationService:
         return scores
 
     def _sort_popular_games(self, games: list[Game]) -> list[Game]:
+        visible_games = [game for game in games if not self._is_temporary_game(game) and not self._is_pending_game(game)]
         return sorted(
-            games,
+            visible_games,
             key=lambda game: (
                 int(self._game_popularity.get(game.game_id, 0) or 0),
                 game.players_now,
@@ -219,3 +224,23 @@ class RecommendationService:
         if "last week" in lowered:
             return datetime(2026, 4, 20).timestamp()
         return 0.0
+
+    def _is_temporary_game(self, game: Game) -> bool:
+        tags = {tag.lower() for tag in game.tags}
+        status = game.status.lower()
+        title = game.title.lower()
+        return (
+            game.game_id == "snake-test"
+            or "temporary" in tags
+            or "test-game" in tags
+            or "temporary" in status
+            or "test lab" in title
+        )
+
+    def _is_pending_game(self, game: Game) -> bool:
+        status = game.status.lower()
+        return (
+            not game.playable
+            and game.team_game
+            and ("pending" in status or "coming" in status or "integration" in status)
+        )

@@ -10,6 +10,9 @@ from client.models import ChatMessage
 from .session_chat import SessionChat
 
 
+BLOCKED_CHAT_WORDS = {"badword", "spamword"}
+
+
 class ChatService:
     """Per-session chat manager used by the arcade and launched games.
 
@@ -46,8 +49,10 @@ class ChatService:
         return self.session_chats[session_id]
 
     def add_message(self, session_id: str, sender: str, text: str, channel: str = "session", timestamp: str | None = None) -> ChatMessage:
-        # TODO(CHAT): Sanitize/validate content before sending it to the server.
-        cleaned_text = text.strip()[:240]
+        # Keep the working local/file-backed chat flow, but sanitize content
+        # before it is stored or displayed. Avoid importing platform_server here
+        # because launched game subprocesses depend on this lightweight path.
+        cleaned_text = self._filter_blocked_words(self._clean_text(text))[:240]
         when = timestamp or datetime.now().strftime("%H:%M")
         message = ChatMessage(channel, sender.strip() or "Guest", cleaned_text, when, session_id=session_id.strip() or "global")
         self.get_or_create_session_chat(message.session_id).add_message(message)
@@ -129,12 +134,28 @@ class ChatService:
             "session_id": message.session_id,
         }
 
-    @staticmethod
-    def _message_from_record(record: dict[str, Any], fallback_session_id: str) -> ChatMessage:
+    def _message_from_record(self, record: dict[str, Any], fallback_session_id: str) -> ChatMessage:
         return ChatMessage(
             str(record.get("channel", "session")),
             str(record.get("sender", "Guest")),
-            str(record.get("text", "")),
+            self._filter_blocked_words(self._clean_text(str(record.get("text", ""))))[:240],
             str(record.get("timestamp", "")),
             session_id=str(record.get("session_id") or fallback_session_id),
         )
+
+    @staticmethod
+    def _clean_text(text: str) -> str:
+        """Strip control characters and normalize whitespace."""
+
+        printable = "".join(character for character in str(text) if character.isprintable())
+        return " ".join(printable.strip().split())
+
+    @staticmethod
+    def _filter_blocked_words(text: str) -> str:
+        """Replace whole-word blocked terms without changing normal words."""
+
+        def replace(match: re.Match[str]) -> str:
+            token = match.group(0)
+            return "*" * len(token) if token.lower() in BLOCKED_CHAT_WORDS else token
+
+        return re.sub(r"\b[A-Za-z0-9_]+\b", replace, text)

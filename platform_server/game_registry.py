@@ -72,7 +72,7 @@ class RegisteredGame:
 GAME_REGISTRY: dict[str, RegisteredGame] = {
     "game_1": RegisteredGame(
         game_id="game_1",
-        title="Fruit Collection",
+        title="Fruit Drop Rush",
         creator="Shahreare Joy",
         genre="Arcade",
         playable=True,

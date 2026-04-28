@@ -190,7 +190,7 @@ class Game:
             return None
         session_id = os.environ.get("SCORPIONS_SESSION_ID", "fruit-collection-local")
         sender = os.environ.get("SCORPIONS_DISPLAY_NAME") or self.player_name
-        title = os.environ.get("SCORPIONS_CHAT_TITLE", "Fruit Collection Chat")
+        title = os.environ.get("SCORPIONS_CHAT_TITLE", "Fruit Drop Rush Chat")
         storage_dir = os.environ.get("SCORPIONS_CHAT_DIR", "")
         return ChatOverlay(ChatOverlayConfig(session_id=session_id, sender_name=sender, title=title, storage_dir=storage_dir))
 
@@ -325,7 +325,7 @@ class Game:
             self.screen.blit(text, text.get_rect(center=(panel.centerx, panel.y + 120 + index * 35)))
 
     def restart_round(self):
-        """Start a fresh Fruit Collection round with the selected character."""
+        """Start a fresh Fruit Drop Rush round with the selected character."""
 
         if self.selected_character is None:
             return

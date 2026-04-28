@@ -20,6 +20,11 @@ How teammates add their game:
 TODO(C++ HANDOFF):
     Later, pass real `session_id`, `server_host`, `server_port`, and player
     token values from the C++ multiplayer server into each game.
+
+Project 02 reference:
+    The older project passed `--server`, `--port`, and `--serializer` into the
+    game client. This registry keeps that pattern, but uses only this class
+    project's approved local/tunneled ports.
 """
 
 from dataclasses import dataclass
@@ -78,6 +83,7 @@ class GameLaunchTarget:
             "session_id": str(session_info.get("session_id", "")),
             "server_host": str(session_info.get("server_host", "localhost")),
             "server_port": str(session_info.get("server_port", "50068")),
+            "serializer": str(session_info.get("serializer", "text")),
             "game_id": self.game_id,
         }
         return [arg.format(**values) for arg in self.script_args]
@@ -89,10 +95,10 @@ class GameLaunchTarget:
 GAME_LAUNCH_TARGETS: dict[str, GameLaunchTarget] = {
     "scorpions-arena": GameLaunchTarget(
         game_id="scorpions-arena",
-        title="Fruit Collection",
+        title="Fruit Drop Rush",
         creator="Shahreare Joy",
         folder_name="game_1",
-        script_args=("{username}", "--server", "{server_host}", "--port", "{server_port}"),
+        script_args=("{username}", "--server", "{server_host}", "--port", "{server_port}", "--serializer", "{serializer}"),
         not_connected_message="Game 1 is not pasted into games/game_1/code/game/main.py yet.",
         notes="Team game 1. Map-based fruit collection game.",
     ),
@@ -101,6 +107,7 @@ GAME_LAUNCH_TARGETS: dict[str, GameLaunchTarget] = {
         title="Escape the City",
         creator="Team Member 2",
         folder_name="game_2",
+        script_args=("{username}", "--server", "{server_host}", "--port", "{server_port}", "--serializer", "{serializer}"),
         not_connected_message="Game 2 is not pasted into games/game_2/code/game/main.py yet.",
     ),
     "turbo-sprint": GameLaunchTarget(
@@ -108,6 +115,7 @@ GAME_LAUNCH_TARGETS: dict[str, GameLaunchTarget] = {
         title="Forgotten",
         creator="Team Member 3",
         folder_name="game_3",
+        script_args=("{username}", "--server", "{server_host}", "--port", "{server_port}", "--serializer", "{serializer}"),
         not_connected_message="Game 3 is not pasted into games/game_3/code/game/main.py yet.",
     ),
     "crystal-run": GameLaunchTarget(

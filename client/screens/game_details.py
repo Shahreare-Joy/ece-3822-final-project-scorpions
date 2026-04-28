@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pygame
 
-from client.components import Button, draw_badge, draw_list_row, draw_panel, draw_text, draw_wrapped, load_image
+from client.components import Button, draw_badge, draw_list_row, draw_panel, draw_text, draw_wrapped, load_image_cover
 from client.core import Palette, ScreenName
 
 from .base_screen import BaseScreen
@@ -30,8 +30,8 @@ class GameDetailsScreen(BaseScreen):
         if game is None:
             return
         self.page_title("Game Details", "Every game has a full catalog page with status, activity, leaderboard preview, and launch options.")
-        art = pygame.Rect(30, 154, 640, 246)
-        art_image = load_image(game.thumbnail_path, (art.width, art.height))
+        art = pygame.Rect(30, 154, 640, 300)
+        art_image = load_image_cover(game.thumbnail_path, (art.width, art.height))
         if art_image is not None:
             self.app.screen.blit(art_image, art)
         else:
@@ -43,13 +43,11 @@ class GameDetailsScreen(BaseScreen):
             pygame.draw.rect(self.app.screen, Palette.BORDER, preview, width=1, border_radius=8)
             draw_text(self.app.screen, "THUMBNAIL / GAME ART", self.app.fonts.tiny, Palette.TEXT, preview.x + 16, preview.y + 12)
             draw_wrapped(self.app.screen, "Season preview art and screenshot area for the selected arcade game.", self.app.fonts.small, Palette.TEXT, pygame.Rect(preview.x + 16, preview.y + 42, preview.width - 32, 54), max_lines=2)
-        overlay = pygame.Surface((art.width, 92), pygame.SRCALPHA)
-        overlay.fill((12, 16, 24, 185))
-        self.app.screen.blit(overlay, (art.x, art.bottom - 92))
-        draw_text(self.app.screen, game.title, self.app.fonts.heading, Palette.TEXT, art.x + 22, 300, max_width=art.width - 44)
-        draw_text(self.app.screen, f"Last updated: {game.last_updated}", self.app.fonts.small, Palette.TEXT, art.x + 24, art.bottom - 62, max_width=art.width - 220)
-        draw_text(self.app.screen, game.activity_note, self.app.fonts.small, Palette.TEXT, art.x + 24, art.bottom - 38, max_width=art.width - 220)
-        draw_badge(self.app.screen, "PLAYABLE NOW" if game.playable else "NOT CONNECTED", pygame.Rect(art.right - 166, art.bottom - 44, 140, 28), self.app.fonts.small, Palette.SUCCESS if game.playable else Palette.WARNING)
+        info = pygame.Rect(30, 466, 640, 86)
+        draw_panel(self.app.screen, info, Palette.PANEL_DARK, Palette.BORDER, radius=8, width=1)
+        draw_text(self.app.screen, game.title, self.app.fonts.subheading, Palette.TEXT, info.x + 20, info.y + 14, max_width=info.width - 210)
+        draw_text(self.app.screen, f"Last updated: {game.last_updated}", self.app.fonts.small, Palette.MUTED, info.x + 20, info.y + 48, max_width=info.width - 220)
+        draw_badge(self.app.screen, "PLAYABLE NOW" if game.playable else "NOT CONNECTED", pygame.Rect(info.right - 170, info.y + 28, 140, 30), self.app.fonts.small, Palette.SUCCESS if game.playable else Palette.WARNING)
 
         panel = pygame.Rect(700, 154, 470, 216)
         draw_panel(self.app.screen, panel)
@@ -71,17 +69,29 @@ class GameDetailsScreen(BaseScreen):
         for button in self.buttons:
             button.draw(self.app.screen)
 
-        board = pygame.Rect(30, 526, 555, 170)
-        activity = pygame.Rect(615, 526, 555, 170)
+        board = pygame.Rect(30, 568, 555, 128)
+        activity = pygame.Rect(615, 568, 555, 128)
         draw_panel(self.app.screen, board)
         draw_panel(self.app.screen, activity)
         draw_text(self.app.screen, "Leaderboard Preview", self.app.fonts.body, Palette.TEXT, board.x + 16, board.y + 14)
-        for index, entry in enumerate(self.app.backend.get_leaderboard(game.game_id, 5)):
+        leaderboard = self.app.backend.get_cached_leaderboard_preview(game.game_id, limit=3)
+        if leaderboard is None and not self.app.backend.is_preload_loading(self.app.current_player):
+            leaderboard = self.app.backend.get_leaderboard(game.game_id, 3)
+        if leaderboard is None:
+            draw_text(self.app.screen, "Loading leaderboard...", self.app.fonts.small, Palette.MUTED, board.x + 18, board.y + 54)
+        for index, entry in enumerate(leaderboard or []):
             row = pygame.Rect(board.x + 14, board.y + 48 + index * 24, board.width - 28, 22)
             draw_list_row(self.app.screen, row, self.app.fonts, f"#{entry.rank} {entry.display_name}", f"{entry.score:,} pts", right_color=Palette.ACCENT)
         draw_text(self.app.screen, "Recent Activity / Sessions", self.app.fonts.body, Palette.TEXT, activity.x + 16, activity.y + 14)
-        sessions = self.app.backend.get_sessions(game_id=game.game_id, limit=5)
-        if not sessions:
+        cached_history = self.app.backend.get_cached_history_sessions(limit=80)
+        sessions = [session for session in cached_history or [] if session.game_id == game.game_id][:3]
+        loading_activity = False
+        if cached_history is None and not self.app.backend.is_preload_loading(self.app.current_player):
+            sessions = self.app.backend.get_sessions(game_id=game.game_id, limit=3)
+        elif cached_history is None:
+            loading_activity = True
+            draw_text(self.app.screen, "Loading recent activity...", self.app.fonts.small, Palette.MUTED, activity.x + 18, activity.y + 54)
+        if not sessions and not loading_activity:
             draw_wrapped(self.app.screen, "No recent public sessions yet. Check back after this game receives live match activity.", self.app.fonts.small, Palette.MUTED, pygame.Rect(activity.x + 18, activity.y + 54, activity.width - 36, 80))
         for index, session in enumerate(sessions):
             player = self.app.backend.get_player(session.username)

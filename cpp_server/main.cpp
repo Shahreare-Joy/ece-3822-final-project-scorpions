@@ -1,6 +1,6 @@
 // Scorpions Arcade C++ multiplayer server entry point.
 //
-// This is a small demo-ready TCP state relay for Fruit Collection. It is not
+// This is a small demo-ready TCP state relay for Fruit Drop Rush. It is not
 // the final authoritative game server, but it gives the current Python game a
 // real connection path:
 //

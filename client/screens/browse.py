@@ -3,7 +3,7 @@ from __future__ import annotations
 import pygame
 
 from client.components import Button, GameCard, InputBox, draw_panel, draw_text
-from client.core import Palette
+from client.core import HEIGHT, Palette
 from client.models import ALL_GENRES
 
 from .base_screen import BaseScreen
@@ -16,11 +16,16 @@ class BrowseScreen(BaseScreen):
 
         # default genre filter
         self.selected_genre = "All"
+        self.scroll_offset = 0
+        self.catalog_games = []
+        self.catalog_cards: list[GameCard] = []
 
     def enter(self) -> None:
         '''prepare browse screen controls and game cards'''
 
         super().enter()
+        self.catalog_cards = []
+        self.cards = []
 
         # keep old search text when refreshing screen
         old_query = getattr(self, "query_box", None).text if hasattr(self, "query_box") else ""
@@ -71,37 +76,41 @@ class BrowseScreen(BaseScreen):
             )
         )
 
-        # create game cards from visible games
-        rows = self.app.backend.get_home_rows(self.app.current_player)
-        has_history = self.app.backend.has_player_history(self.app.current_player)
-        self.personalized_rows = [
-            ("Recently Played" if has_history else "Popular Right Now", rows.recently_played, 302),
-            ("Recommended For You" if has_history else "Top Rated / Popular Games", rows.recommended, 410),
-        ]
-        for _, row_games, y in self.personalized_rows:
-            for index, game in enumerate(row_games[:5]):
-                self.cards.append(
-                    GameCard(
-                        (30 + index * 230, y, 218, 78),
-                        game,
-                        self.app.open_game,
-                        self.app.fonts,
-                        compact=True,
-                    )
-                )
+        self.catalog_games = self.visible_games()
+        self._clamp_scroll()
+        self._rebuild_catalog_cards()
 
-        games = self.visible_games()
-        for index, game in enumerate(games[:5]):
-            row = index // 5
-            col = index % 5
-            self.cards.append(
-                GameCard(
-                    (30 + col * 230, 532 + row * 126, 218, 112),
-                    game,
-                    self.app.open_game,
-                    self.app.fonts
-                )
-            )
+    def _rebuild_catalog_cards(self) -> None:
+        self.catalog_cards = []
+        card_w = 218
+        card_h = 112
+        gap_x = 12
+        gap_y = 14
+        cols = 5
+        list_top = 304
+        for index, game in enumerate(self.catalog_games):
+            row = index // cols
+            col = index % cols
+            y = list_top + row * (card_h + gap_y) - self.scroll_offset
+            rect = pygame.Rect(30 + col * (card_w + gap_x), y, card_w, card_h)
+            if rect.bottom < list_top or rect.top > HEIGHT - 44:
+                continue
+            self.catalog_cards.append(GameCard(rect, game, self.app.open_game, self.app.fonts))
+        self.cards = self.catalog_cards
+
+    def _clamp_scroll(self) -> None:
+        cols = 5
+        rows = max(1, (len(self.catalog_games) + cols - 1) // cols)
+        content_height = rows * 126
+        viewport_height = max(120, HEIGHT - 304 - 44)
+        self.max_scroll = max(0, content_height - viewport_height)
+        self.scroll_offset = max(0, min(self.scroll_offset, self.max_scroll))
+
+    def _scroll(self, amount: int) -> None:
+        old_offset = self.scroll_offset
+        self.scroll_offset = max(0, min(self.scroll_offset + amount, self.max_scroll))
+        if self.scroll_offset != old_offset:
+            self._rebuild_catalog_cards()
 
     def visible_games(self) -> list:
         '''return games matching search and genre filter'''
@@ -127,6 +136,7 @@ class BrowseScreen(BaseScreen):
 
         # update selected genre
         self.selected_genre = genre
+        self.scroll_offset = 0
 
         # rebuild screen
         self.enter()
@@ -141,6 +151,7 @@ class BrowseScreen(BaseScreen):
         '''run search using current query text'''
 
         # rebuild cards based on query
+        self.scroll_offset = 0
         self.enter()
 
         # show search status message
@@ -153,6 +164,18 @@ class BrowseScreen(BaseScreen):
 
         # let base screen process events first
         super().handle_event(event)
+
+        if event.type == pygame.MOUSEWHEEL:
+            self._scroll(-event.y * 72)
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_DOWN:
+                self._scroll(72)
+            elif event.key == pygame.K_UP:
+                self._scroll(-72)
+            elif event.key == pygame.K_PAGEDOWN:
+                self._scroll(252)
+            elif event.key == pygame.K_PAGEUP:
+                self._scroll(-252)
 
         # handle search box input
         result = self.query_box.handle_event(event)
@@ -182,6 +205,8 @@ class BrowseScreen(BaseScreen):
         draw_text(self.app.screen, "Catalog Snapshot", self.app.fonts.body, Palette.TEXT, summary.x + 16, summary.y + 12)
         draw_text(self.app.screen, f"{count} matching games", self.app.fonts.small, Palette.ACCENT, summary.x + 16, summary.y + 36)
         draw_text(self.app.screen, f"{len(self.app.backend.get_games())} total catalog entries", self.app.fonts.tiny, Palette.MUTED, summary.x + 16, summary.y + 54)
+        scroll_text = "Mouse wheel / Up / Down scrolls games" if self.max_scroll else "All matching games visible"
+        draw_text(self.app.screen, scroll_text, self.app.fonts.tiny, Palette.MUTED, summary.x + 16, summary.y + 74, max_width=290)
 
         # draw search input
         self.query_box.draw(self.app.screen)
@@ -190,14 +215,20 @@ class BrowseScreen(BaseScreen):
         for button in self.buttons:
             button.draw(self.app.screen)
 
-        # draw personalized rows from indexed history/recommendation services
-        for title, _, y in self.personalized_rows:
-            draw_text(self.app.screen, title, self.app.fonts.body, Palette.TEXT, 30, y - 25)
-
         # draw game cards section
-        draw_text(self.app.screen, "Games", self.app.fonts.body, Palette.TEXT, 30, 502)
-        for card in self.cards:
+        draw_text(self.app.screen, "Games", self.app.fonts.body, Palette.TEXT, 30, 278)
+        games_clip = pygame.Rect(24, 298, 1158, HEIGHT - 342)
+        old_clip = self.app.screen.get_clip()
+        self.app.screen.set_clip(games_clip)
+        for card in self.catalog_cards:
             card.draw(self.app.screen)
+        self.app.screen.set_clip(old_clip)
+        if self.max_scroll:
+            track = pygame.Rect(1162, 304, 6, HEIGHT - 356)
+            pygame.draw.rect(self.app.screen, Palette.PANEL_DARK, track, border_radius=3)
+            thumb_h = max(32, int(track.height * track.height / (track.height + self.max_scroll)))
+            thumb_y = track.y + int((track.height - thumb_h) * (self.scroll_offset / self.max_scroll))
+            pygame.draw.rect(self.app.screen, Palette.ACCENT, pygame.Rect(track.x, thumb_y, track.width, thumb_h), border_radius=3)
 
         # draw screen message if active
         self.draw_message()

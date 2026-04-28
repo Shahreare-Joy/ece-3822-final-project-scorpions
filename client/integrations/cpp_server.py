@@ -9,6 +9,8 @@ from time import time
 ALLOWED_SERVER_PORTS = (50068, 50069, 50075, 50082)
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 50068
+ALLOWED_SERIALIZERS = ("text", "json", "binary")
+DEFAULT_SERIALIZER = "text"
 
 
 def is_allowed_port(port: int) -> bool:
@@ -28,6 +30,23 @@ def normalize_allowed_port(port: int) -> int:
     except (TypeError, ValueError):
         return DEFAULT_SERVER_PORT
     return parsed_port if parsed_port in ALLOWED_SERVER_PORTS else DEFAULT_SERVER_PORT
+
+
+def normalize_tcp_port(port: int) -> int:
+    """Return a usable TCP port, falling back to the project default."""
+
+    try:
+        parsed_port = int(port)
+    except (TypeError, ValueError):
+        return DEFAULT_SERVER_PORT
+    return parsed_port if 1 <= parsed_port <= 65535 else DEFAULT_SERVER_PORT
+
+
+def normalize_serializer(serializer: str | None) -> str:
+    """Return a serializer name supported by the C++ game protocol."""
+
+    value = (serializer or DEFAULT_SERIALIZER).strip().lower()
+    return value if value in ALLOWED_SERIALIZERS else DEFAULT_SERIALIZER
 
 
 def _env_host(role: str) -> str:
@@ -50,6 +69,61 @@ def _env_port(role: str) -> int:
     )
 
 
+def _env_serializer() -> str:
+    """Read the gameplay message serializer from env, defaulting to text."""
+
+    return normalize_serializer(os.environ.get("SCORPIONS_GAME_SERIALIZER") or os.environ.get("SCORPIONS_SERIALIZER"))
+
+
+@dataclass(frozen=True)
+class ServerAvailability:
+    """Result from a fast server reachability check.
+
+    The platform server currently runs as a Python direct-call facade. The C++
+    gameplay server is checked through TCP because active games use sockets.
+    """
+
+    name: str
+    role: str
+    host: str
+    port: int
+    reachable: bool
+    message: str
+    protocol: str = "tcp"
+    direct_call: bool = False
+
+    @property
+    def endpoint(self) -> str:
+        return f"{self.host}:{self.port}"
+
+
+def check_tcp_endpoint(connection: "ServerConnectionInfo", name: str, role: str, timeout: float = 0.35) -> ServerAvailability:
+    """Probe a TCP endpoint once and always close the socket immediately."""
+
+    try:
+        with socket.create_connection((connection.host, connection.port), timeout=timeout):
+            pass
+    except OSError as exc:
+        return ServerAvailability(
+            name=name,
+            role=role,
+            host=connection.host,
+            port=connection.port,
+            reachable=False,
+            message=f"{name} is offline at {connection.host}:{connection.port} ({exc.__class__.__name__}).",
+            protocol=connection.protocol,
+        )
+    return ServerAvailability(
+        name=name,
+        role=role,
+        host=connection.host,
+        port=connection.port,
+        reachable=True,
+        message=f"{name} is reachable at {connection.host}:{connection.port}.",
+        protocol=connection.protocol,
+    )
+
+
 @dataclass
 class ServerConnectionInfo:
     """Connection settings for a locally forwarded server endpoint.
@@ -67,14 +141,27 @@ class ServerConnectionInfo:
     # communication protocol (tcp/udp/etc.)
     protocol: str = "tcp"
 
+    # gameplay serializer used by the Project 02 style socket protocol
+    serializer: str = DEFAULT_SERIALIZER
+
+    # Local mode enforces class-approved ports. Server mode can use an ECE
+    # endpoint supplied on the command line.
+    enforce_allowed_ports: bool = True
+
     def __post_init__(self) -> None:
-        self.port = normalize_allowed_port(int(self.port))
+        self.port = normalize_allowed_port(self.port) if self.enforce_allowed_ports else normalize_tcp_port(self.port)
+        self.serializer = normalize_serializer(self.serializer)
+
+    @property
+    def endpoint(self) -> str:
+        return f"{self.host}:{self.port}"
 
     @classmethod
     def from_environment(cls, role: str = "GAME") -> "ServerConnectionInfo":
         """Build connection settings from SCORPIONS_<ROLE>_* variables."""
 
-        return cls(host=_env_host(role), port=_env_port(role))
+        serializer = _env_serializer() if role.upper() == "GAME" else DEFAULT_SERIALIZER
+        return cls(host=_env_host(role), port=_env_port(role), serializer=serializer)
 
 
 class PlatformConnectionInfo(ServerConnectionInfo):
@@ -90,7 +177,7 @@ class GameServerConnectionInfo(ServerConnectionInfo):
 
     @classmethod
     def from_environment(cls) -> "GameServerConnectionInfo":
-        return cls(host=_env_host("GAME"), port=_env_port("GAME"))
+        return cls(host=_env_host("GAME"), port=_env_port("GAME"), serializer=_env_serializer())
 
 
 @dataclass
@@ -170,16 +257,17 @@ class CppServerClient:
         # track connection state
         self.connected = False
 
-    def connect(self) -> None:
+    def check_availability(self, timeout: float = 0.35) -> ServerAvailability:
+        """Check whether the C++ gameplay server accepts TCP connections."""
+
+        status = check_tcp_endpoint(self.connection, "C++ Gameplay Server", "gameplay", timeout=timeout)
+        self.connected = status.reachable
+        return status
+
+    def connect(self) -> bool:
         '''try to connect to the C++ backend server'''
 
-        try:
-            with socket.create_connection((self.connection.host, self.connection.port), timeout=0.75):
-                self.connected = True
-        except OSError:
-            # Safe fallback: games can still run offline/local, but the UI can
-            # honestly report that the live C++ server is not reachable.
-            self.connected = False
+        return self.check_availability(timeout=0.75).reachable
 
     def login(self, request: ServerLoginRequest) -> ServerLoginResponse:
         '''send login request to backend'''
@@ -205,10 +293,9 @@ class CppServerClient:
 
         # TODO(C++ LAUNCH): Replace this local session id with the
         # authoritative session_id/player_token returned by the C++ server.
-        if not self.connected:
-            self.connect()
-        if not self.connected:
-            return ServerSessionResponse(False, "C++ session server is not reachable on the selected class port.")
+        status = self.check_availability()
+        if not status.reachable:
+            return ServerSessionResponse(False, f"C++ session server is not reachable at {status.endpoint}. Arcade browsing can continue.")
 
         safe_game = request.game_id.replace(" ", "-")
         safe_user = request.username.replace(" ", "-")
