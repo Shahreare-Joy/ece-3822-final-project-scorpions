@@ -3,6 +3,7 @@ from __future__ import annotations
 import pygame
 
 from client.components import Button, draw_panel, draw_text, draw_wrapped
+from client.components.auth_background import draw_auth_background
 from client.core import WIDTH, Palette, ScreenName
 
 from .base_screen import BaseScreen
@@ -18,6 +19,7 @@ class WelcomeScreen(BaseScreen):
         ]
 
     def draw(self) -> None:
+        draw_auth_background(self.app.screen)
         draw_text(self.app.screen, "SCORPIONS ARCADE", self.app.fonts.title, Palette.TEXT, WIDTH // 2, 120, center=True)
         draw_wrapped(self.app.screen, "A multiplayer arcade hub for ECE 3822 Spring 2026.", self.app.fonts.body, Palette.MUTED, pygame.Rect(330, 165, 540, 52), align="center")
         panel = pygame.Rect(360, 250, 480, 320)

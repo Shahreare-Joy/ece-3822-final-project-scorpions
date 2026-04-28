@@ -3,6 +3,7 @@ from __future__ import annotations
 import pygame
 
 from client.components import Button, InputBox, draw_panel, draw_text, draw_wrapped
+from client.components.auth_background import draw_auth_background
 from client.core import WIDTH, Palette, ScreenName
 
 from .base_screen import BaseScreen
@@ -57,6 +58,7 @@ class LoginScreen(BaseScreen):
                 break
 
     def draw(self) -> None:
+        draw_auth_background(self.app.screen)
         draw_text(self.app.screen, "SCORPIONS ARCADE", self.app.fonts.title, Palette.TEXT, WIDTH // 2, 118, center=True)
         panel = pygame.Rect(380, 215, 440, 380)
         draw_panel(self.app.screen, panel)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pygame
 
 from client.components import Button, InputBox, draw_panel, draw_text, draw_wrapped
+from client.components.auth_background import draw_auth_background
 from client.core import Palette, ScreenName
 
 from .base_screen import BaseScreen
@@ -56,6 +57,7 @@ class CreateAccountScreen(BaseScreen):
                 break
 
     def draw(self) -> None:
+        draw_auth_background(self.app.screen)
         panel = pygame.Rect(360, 160, 480, 515)
         draw_panel(self.app.screen, panel)
         draw_text(self.app.screen, "Create Account", self.app.fonts.heading, Palette.TEXT, panel.centerx, 190, center=True)
