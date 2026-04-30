@@ -1,0 +1,53 @@
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# Test, coverage, and tooling caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime/demo data generated while testing
+data/runtime_chat/
+data/runtime_sessions/
+data/runtime_results/
+*.log
+
+# C/C++ build artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.exe
+server/obj_*/
+games/*/code/server/obj_*/
+
+# Keep source-controlled server scripts/source, but ignore locally rebuilt binaries.
+server/server_json_jitter
+server/server_text_jitter
+server/server_text_smoother
+games/*/code/server/server_text
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Local environment files
+.env
+.env.*
+!.env.example
