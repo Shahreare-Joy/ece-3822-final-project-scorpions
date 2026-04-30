@@ -21,139 +21,145 @@ from map_loader import load_layer
 from support import import_csv_layout
 import sys
 
+# Total game time in seconds
+GAME_DURATION = 120   # 2 minutes
+
 class Level:
     def __init__(self, player_name, character_class, server_host='localhost', server_port=8080, serializer='text'):
-        # Get the display surface
         self.display_surface = pygame.display.get_surface()
 
-        # Sprite group setup
         self.floor_sprites = pygame.sprite.Group()
         self.visible_sprites = YSortCameraGroup()
         self.obstacle_sprites = pygame.sprite.Group()
 
-        # Combat sprite groups
         self.current_attack = None
         self.attack_sprites = pygame.sprite.Group()
         self.attackable_sprites = pygame.sprite.Group()
 
-        # Store character class for player creation
         self.character_class = character_class
-
-        # Sprite setup
         self.create_map()
 
-        # Network setup with serializer
         self.network = NetworkClient(player_name, server_host, server_port, serializer)
         self.connected = self.network.connect()
 
-        # Track other players
-        self.other_players = {}  # player_id -> Character sprite
-
-        # Font for displaying names
+        self.other_players = {}
         self.font = pygame.font.Font(None, 24)
-
-        # Connection status
         self.connection_status = "Connecting..."
 
-        # Inventory UI
         self.inventory_ui = InventoryUI(self.player.inventory)
         self.inventory_ui.character = self.player
-
-        # Add starting items for testing
         self.add_starting_items()
 
-        # Time travel system (Lab 4)
         self.time_travel = TimeTravel(max_history=180)
         self.is_time_traveling = False
         self.enemy_history = []
         self.enemy_future  = []
 
-        # Enemy system (Lab 5)
         self.enemies = pygame.sprite.Group()
         self.create_enemies()
-
-        # Debug mode for showing enemy paths
         self.show_enemy_debug = False
 
-        # ---------------------------------------------------------------
         # Leaderboard / scoring
-        # ---------------------------------------------------------------
         self.score = 0
         self.start_time = pygame.time.get_ticks()
         self.game_over = False
+        self.game_over_reason = None   # 'dead' | 'timeout'
         self._game_over_time = 0
         self._score_recorded = False
 
-        # Fonts for the end screen / HUD
         self._go_font_large = pygame.font.Font(None, 80)
         self._go_font_med   = pygame.font.Font(None, 48)
         self._go_font_small = pygame.font.Font(None, 32)
 
-        # End-screen buttons
         btn_w, btn_h = 260, 55
         cx = WIDTH // 2
-        self._btn_play_again = pygame.Rect(cx - btn_w - 20, HEIGHT // 2 + 120, btn_w, btn_h)
-        self._btn_arcade     = pygame.Rect(cx + 20,          HEIGHT // 2 + 120, btn_w, btn_h)
-        self._end_action     = None   # 'restart' | 'arcade' | None
+        self._btn_play_again = pygame.Rect(cx - btn_w - 20, HEIGHT // 2 + 140, btn_w, btn_h)
+        self._btn_arcade     = pygame.Rect(cx + 20,          HEIGHT // 2 + 140, btn_w, btn_h)
+        self._end_action     = None
 
     # ------------------------------------------------------------------
-    # Scoring helpers
+    # Scoring
     # ------------------------------------------------------------------
 
     def _on_enemy_death(self):
-        """Fired by Enemy.check_death() — increment kill counter."""
         self.score += 1
 
-    def _active_time_str(self):
-        """Return elapsed play time as MM:SS."""
+    def _elapsed_ms(self):
         if self.game_over:
-            elapsed_ms = self._game_over_time - self.start_time
-        else:
-            elapsed_ms = pygame.time.get_ticks() - self.start_time
-        total_sec = elapsed_ms // 1000
+            return self._game_over_time - self.start_time
+        return pygame.time.get_ticks() - self.start_time
+
+    def _active_time_str(self):
+        total_sec = self._elapsed_ms() // 1000
         return f"{total_sec // 60:02d}:{total_sec % 60:02d}"
+
+    def _remaining_ms(self):
+        return max(0, GAME_DURATION * 1000 - self._elapsed_ms())
+
+    def _remaining_str(self):
+        rem = self._remaining_ms() // 1000
+        return f"{rem // 60:02d}:{rem % 60:02d}"
+
+    # ------------------------------------------------------------------
+    # Game over check
+    # ------------------------------------------------------------------
+
+    def _check_game_over(self):
+        """End the game if player dies OR 2-minute timer runs out."""
+        if self.game_over:
+            return
+        if self.player.hp <= 0:
+            self.game_over = True
+            self.game_over_reason = 'dead'
+            self._game_over_time = pygame.time.get_ticks()
+        elif self._remaining_ms() == 0:
+            self.game_over = True
+            self.game_over_reason = 'timeout'
+            self._game_over_time = pygame.time.get_ticks()
 
     # ------------------------------------------------------------------
     # End screen
     # ------------------------------------------------------------------
 
-    def _check_game_over(self):
-        """Trigger game-over state the moment the player runs out of HP."""
-        if not self.game_over and self.player.hp <= 0:
-            self.game_over = True
-            self._game_over_time = pygame.time.get_ticks()
-
     def draw_end_screen(self, events):
-        """
-        Draw the full-screen game-over overlay.
-        Returns 'restart', 'arcade', or None.
-        """
-        # Semi-transparent dark overlay
+        """Draw full-screen end overlay. Returns 'restart', 'arcade', or None."""
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 210))
         self.display_surface.blit(overlay, (0, 0))
 
         cx = WIDTH // 2
 
-        # Title
-        title = self._go_font_large.render("GAME OVER", True, (220, 60, 60))
-        self.display_surface.blit(title, title.get_rect(center=(cx, HEIGHT // 2 - 180)))
+        # --- Title + subtitle depending on how the game ended ---
+        if self.game_over_reason == 'timeout':
+            title_text    = "TIME'S UP!"
+            title_color   = (255, 180, 0)
+            subtitle_text = ""
+        else:
+            title_text    = "YOU GOT KILLED"
+            title_color   = (220, 60, 60)
+            subtitle_text = "Better luck next time!"
 
-        # Score
+        title = self._go_font_large.render(title_text, True, title_color)
+        self.display_surface.blit(title, title.get_rect(center=(cx, HEIGHT // 2 - 200)))
+
+        if subtitle_text:
+            sub = self._go_font_small.render(subtitle_text, True, (255, 200, 200))
+            self.display_surface.blit(sub, sub.get_rect(center=(cx, HEIGHT // 2 - 145)))
+
+        # --- Score ---
         score_surf = self._go_font_med.render(
             f"Enemies Defeated:  {self.score}", True, (255, 215, 0))
-        self.display_surface.blit(score_surf, score_surf.get_rect(center=(cx, HEIGHT // 2 - 100)))
+        self.display_surface.blit(score_surf, score_surf.get_rect(center=(cx, HEIGHT // 2 - 95)))
 
-        # Active time
+        # --- Active time ---
         time_surf = self._go_font_med.render(
             f"Active Time:  {self._active_time_str()}", True, (180, 220, 255))
         self.display_surface.blit(time_surf, time_surf.get_rect(center=(cx, HEIGHT // 2 - 45)))
 
-        # Leaderboard header
+        # --- Leaderboard ---
         lb_hdr = self._go_font_small.render("— Session Leaderboard —", True, (200, 200, 200))
-        self.display_surface.blit(lb_hdr, lb_hdr.get_rect(center=(cx, HEIGHT // 2 + 20)))
+        self.display_surface.blit(lb_hdr, lb_hdr.get_rect(center=(cx, HEIGHT // 2 + 15)))
 
-        # Persist leaderboard on the class so it survives Level restarts
         if not hasattr(Level, '_leaderboard'):
             Level._leaderboard = []
 
@@ -172,9 +178,9 @@ class Level:
                 f"#{rank}  {entry['name']}   {entry['score']} kills   {entry['time']}",
                 True, colour
             )
-            self.display_surface.blit(row, row.get_rect(center=(cx, HEIGHT // 2 + 20 + rank * 34)))
+            self.display_surface.blit(row, row.get_rect(center=(cx, HEIGHT // 2 + 15 + rank * 34)))
 
-        # Buttons
+        # --- Buttons ---
         mouse_pos = pygame.mouse.get_pos()
         clicked   = any(e.type == pygame.MOUSEBUTTONDOWN and e.button == 1 for e in events)
 
@@ -184,8 +190,8 @@ class Level:
         ]:
             hovered = rect.collidepoint(mouse_pos)
             bg = hover_col if hovered else normal_col
-            pygame.draw.rect(self.display_surface, bg,            rect, border_radius=8)
-            pygame.draw.rect(self.display_surface, (255,255,255), rect, 2, border_radius=8)
+            pygame.draw.rect(self.display_surface, bg,             rect, border_radius=8)
+            pygame.draw.rect(self.display_surface, (255, 255, 255), rect, 2, border_radius=8)
             lbl = self._go_font_small.render(label, True, (255, 255, 255))
             self.display_surface.blit(lbl, lbl.get_rect(center=rect.center))
             if clicked and hovered:
@@ -194,30 +200,40 @@ class Level:
         return None
 
     def _player_label(self):
-        """Display name for the leaderboard."""
         try:
             return self.network.player_name
         except Exception:
             return "Player"
 
     # ------------------------------------------------------------------
-    # Live score HUD
+    # Live HUD
     # ------------------------------------------------------------------
 
     def _draw_score_hud(self):
-        """Kill counter + timer in the top-right corner."""
-        surf = self._go_font_small.render(
-            f"Kills: {self.score}   Time: {self._active_time_str()}",
-            True, (255, 215, 0)
-        )
+        surf = self._go_font_small.render(f"Kills: {self.score}", True, (255, 215, 0))
         self.display_surface.blit(surf, (WIDTH - surf.get_width() - 12, 10))
+
+    def _draw_timer_hud(self):
+        """Countdown timer centred at the top. Pulses red in the last 30 seconds."""
+        remaining = self._remaining_ms()
+        text = self._remaining_str()
+
+        if remaining <= 30000:
+            pulse = (pygame.time.get_ticks() // 500) % 2 == 0
+            color = (255, 60, 60) if pulse else (180, 20, 20)
+            font  = self._go_font_large
+        else:
+            color = (255, 255, 255)
+            font  = self._go_font_med
+
+        surf = font.render(text, True, color)
+        self.display_surface.blit(surf, surf.get_rect(center=(WIDTH // 2, 24)))
 
     # ------------------------------------------------------------------
     # Map creation
     # ------------------------------------------------------------------
 
     def create_map(self):
-        """Create the game map from CSV layers and spawn the player."""
         map_dir = os.path.join(os.path.dirname(__file__), 'map')
         floorblocks_path = os.path.join(map_dir, 'map_FloorBlocks.csv')
         grass_path = os.path.join(map_dir, 'map_Grass.csv')
@@ -305,7 +321,6 @@ class Level:
         print("Press 'I' to open inventory and switch weapons. SPACE to attack!")
 
     def create_enemies(self):
-        """Create enemies with on_death callback for kill scoring."""
         try:
             print("Creating enemies...")
             for data in ENEMY_SPAWN_DATA:
@@ -317,7 +332,7 @@ class Level:
                         notice_radius=data.get("notice_radius", 200),
                         attack_radius=data.get("attack_radius", 60),
                         damage_player=self.damage_player,
-                        on_death=self._on_enemy_death,   # <-- score callback
+                        on_death=self._on_enemy_death,
                     )
 
                     if data["patrol_type"] == "random":
@@ -337,7 +352,6 @@ class Level:
                         for waypoint in data["waypoints"]:
                             x, y = waypoint
                             patrol_path.add_waypoint(x, y, wait_time=1.0)
-
                         enemy = Enemy(
                             name=data["name"],
                             start_x=data["spawn"][0],
@@ -361,8 +375,6 @@ class Level:
             print(f"Total enemies created: {len(self.enemies)}")
             if len(self.enemies) > 0:
                 print("Press 'N' to toggle enemy debug view!")
-            else:
-                print("No patrol enemies created - implement Waypoint and PatrolPath to see them!")
 
         except ImportError as e:
             print(f"Enemies not available yet: {e}")
@@ -451,7 +463,7 @@ class Level:
             self.player.other_players = list(self.other_players.values())
 
     # ------------------------------------------------------------------
-    # Events
+    # Events / drawing
     # ------------------------------------------------------------------
 
     def handle_events(self, events):
@@ -621,11 +633,9 @@ class Level:
         self.handle_time_travel_input(events)
         self.handle_enemy_debug_input(events)
 
-        # Check whether player just died
         self._check_game_over()
 
         if self.game_over:
-            # Draw world underneath, then overlay end screen
             self.visible_sprites.custom_draw(
                 self.player,
                 floor_sprites=self.floor_sprites,
@@ -635,7 +645,7 @@ class Level:
             action = self.draw_end_screen(events)
             if action:
                 self._end_action = action
-            return   # skip normal updates while end screen is showing
+            return
 
         # Normal gameplay
         self.update_network()
@@ -663,7 +673,8 @@ class Level:
         self.draw_status()
         self.draw_time_travel_ui()
         self.draw_enemy_debug()
-        self._draw_score_hud()   # live kill counter top-right
+        self._draw_score_hud()
+        self._draw_timer_hud()
 
         if self.inventory_ui.active:
             self.inventory_ui.draw(self.display_surface)
