@@ -16,91 +16,51 @@ from datastructures.patrol_path import PatrolPath
 ENEMY_SPAWN_DATA = [
     {
         "name": "broken_runner",
-<<<<<<< HEAD
-        "spawn": (7, 6),
-        "waypoints": [(5, 6), (9, 6), (9, 10), (5, 10)],
-        "patrol_type": "circular",
-        "speed": 1,
-        "description": "Patrols the upper-left arena.",
-=======
         "spawn": (9, 8),
         "waypoints": [(9, 3), (9, 18), (24, 20), (42, 20)],
         "patrol_type": "circular",
-        "speed": 3,
+        "speed": 1,
         "description": "Patrols the north city roads",
->>>>>>> game_3_map_fixing
         "health": 60, "exp": 30, "attack_damage": 8,
         "notice_radius": 150, "attack_radius": 60,
     },
     {
         "name": "broken_demolisher",
-<<<<<<< HEAD
-        "spawn": (36, 7),
-        "waypoints": [(34, 7), (38, 7)],
-        "patrol_type": "back_and_forth",
-        "speed": 0.9,
-        "description": "Patrols the upper-right arena.",
-=======
         "spawn": (24, 8),
         "waypoints": [(24, 4), (24, 16)],
         "patrol_type": "back_and_forth",
-        "speed": 1.9,
+        "speed": 0.9,
         "description": "Guards the central avenue",
->>>>>>> game_3_map_fixing
         "health": 40, "exp": 20, "attack_damage": 5,
         "notice_radius": 150, "attack_radius": 50,
     },
     {
         "name": "broken_trader",
-<<<<<<< HEAD
-        "spawn": (23, 12),
-        "waypoints": [(21, 12), (25, 12), (25, 14), (21, 14)],
-        "patrol_type": "circular",
-        "speed": 0.8,
-        "description": "Circles the center arena.",
-=======
         "spawn": (42, 21),
         "waypoints": [(38, 21), (48, 21), (48, 31), (42, 31)],
         "patrol_type": "circular",
-        "speed": 1.3,
+        "speed": 0.8,
         "description": "Circles the market streets",
->>>>>>> game_3_map_fixing
         "health": 40, "exp": 20, "attack_damage": 5,
         "notice_radius": 150, "attack_radius": 50,
     },
     {
         "name": "navigate",
-<<<<<<< HEAD
-        "spawn": (24, 17),
-        "waypoints": [(24, 16), (26, 16), (26, 20), (24, 20)],
-        "patrol_type": "back_and_forth",
-        "speed": 1,
-        "description": "Patrols the center-right corridor.",
-=======
         "spawn": (52, 8),
         "waypoints": [(52, 2), (52, 18)],
         "patrol_type": "back_and_forth",
         "speed": 1,
         "description": "Patrols the east boulevard",
->>>>>>> game_3_map_fixing
         "health": 80, "exp": 40, "attack_damage": 12,
         "notice_radius": 150, "attack_radius": 60,
     },
     {
         "name": "chase",
-<<<<<<< HEAD
-        "spawn": (35, 27),
-        "waypoints": [(35, 26), (36, 26), (36, 28), (35, 28)],
-        "patrol_type": "back_and_forth",
-        "speed": 0.8,
-        "description": "Guards the lower-right arena.",
-=======
-        "spawn": (26, 35),
+        "spawn": (24, 31),
         "waypoints": [(16, 31), (36, 31)],
         "patrol_type": "back_and_forth",
-        "speed": 1.0,
+        "speed": 0.8,
         "description": "Guards the south road",
->>>>>>> game_3_map_fixing
         "health": 40, "exp": 20, "attack_damage": 5,
         "notice_radius": 150, "attack_radius": 50,
     },
