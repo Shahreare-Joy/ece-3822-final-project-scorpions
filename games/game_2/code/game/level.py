@@ -59,6 +59,10 @@ class Level:
         self.create_enemies()
         self.show_enemy_debug = False
 
+        # Respawn queue: list of {'data': ENEMY_SPAWN_DATA entry, 'respawn_at': ms timestamp}
+        self._respawn_queue = []
+        self._respawn_delay = 10000   # 10 seconds in milliseconds
+
         # Leaderboard / scoring
         self.score = 0
         self.start_time = pygame.time.get_ticks()
@@ -81,8 +85,13 @@ class Level:
     # Scoring
     # ------------------------------------------------------------------
 
-    def _on_enemy_death(self):
+    def _on_enemy_death(self, data):
+        """Increment score and queue this enemy to respawn in 10 seconds."""
         self.score += 1
+        self._respawn_queue.append({
+            'data': data,
+            'respawn_at': pygame.time.get_ticks() + self._respawn_delay,
+        })
 
     def _elapsed_ms(self):
         if self.game_over:
@@ -325,6 +334,10 @@ class Level:
             print("Creating enemies...")
             for data in ENEMY_SPAWN_DATA:
                 try:
+                    # Capture data in a closure so each enemy knows its own spawn data
+                    def make_death_cb(d):
+                        return lambda: self._on_enemy_death(d)
+
                     combat_kwargs = dict(
                         health=data.get("health", 60),
                         exp=data.get("exp", 30),
@@ -332,7 +345,7 @@ class Level:
                         notice_radius=data.get("notice_radius", 200),
                         attack_radius=data.get("attack_radius", 60),
                         damage_player=self.damage_player,
-                        on_death=self._on_enemy_death,
+                        on_death=make_death_cb(data),
                     )
 
                     if data["patrol_type"] == "random":
@@ -380,6 +393,65 @@ class Level:
             print(f"Enemies not available yet: {e}")
         except Exception as e:
             print(f"Error setting up enemies: {e}")
+
+    def _spawn_enemy(self, data):
+        """Recreate a single enemy from its ENEMY_SPAWN_DATA entry."""
+        def make_death_cb(d):
+            return lambda: self._on_enemy_death(d)
+
+        combat_kwargs = dict(
+            health=data.get("health", 60),
+            exp=data.get("exp", 30),
+            attack_damage=data.get("attack_damage", 10),
+            notice_radius=data.get("notice_radius", 200),
+            attack_radius=data.get("attack_radius", 60),
+            damage_player=self.damage_player,
+            on_death=make_death_cb(data),
+        )
+
+        if data["patrol_type"] == "random":
+            enemy = Enemy(
+                name=data["name"],
+                start_x=data["spawn"][0],
+                start_y=data["spawn"][1],
+                patrol_path=None,
+                patrol_type="random",
+                obstacle_sprites=self.obstacle_sprites,
+                speed=data["speed"],
+                sprite_name=data["name"].lower().replace(" ", "_"),
+                **combat_kwargs
+            )
+        else:
+            patrol_path = PatrolPath(data["patrol_type"])
+            for waypoint in data["waypoints"]:
+                x, y = waypoint
+                patrol_path.add_waypoint(x, y, wait_time=1.0)
+            enemy = Enemy(
+                name=data["name"],
+                start_x=data["spawn"][0],
+                start_y=data["spawn"][1],
+                patrol_path=patrol_path,
+                obstacle_sprites=self.obstacle_sprites,
+                speed=data["speed"],
+                sprite_name=data["name"].lower().replace(" ", "_"),
+                **combat_kwargs
+            )
+
+        self.enemies.add(enemy)
+        self.visible_sprites.add(enemy)
+        self.obstacle_sprites.add(enemy)
+        self.attackable_sprites.add(enemy)
+
+    def _process_respawns(self):
+        """Check the respawn queue and bring enemies back after 10 seconds."""
+        now = pygame.time.get_ticks()
+        still_waiting = []
+        for entry in self._respawn_queue:
+            if now >= entry["respawn_at"]:
+                self._spawn_enemy(entry["data"])
+            else:
+                still_waiting.append(entry)
+        self._respawn_queue = still_waiting
 
     # ------------------------------------------------------------------
     # Combat
@@ -659,6 +731,7 @@ class Level:
                 enemy.enemy_update(self.player)
             self.enemies.update()
             self.player_attack_logic()
+            self._process_respawns()
 
         self.visible_sprites.custom_draw(
             self.player,
