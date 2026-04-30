@@ -57,7 +57,7 @@ class Level:
 
         # Inventory UI
         self.inventory_ui = InventoryUI(self.player.inventory)
-        self.inventory_ui.character = self.player   # equip-button needs this
+        self.inventory_ui.character = self.player
 
         # Add starting items for testing
         self.add_starting_items()
@@ -65,8 +65,8 @@ class Level:
         # Time travel system (Lab 4)
         self.time_travel = TimeTravel(max_history=180)
         self.is_time_traveling = False
-        self.enemy_history = []   # parallel enemy state snapshots
-        self.enemy_future  = []   # enemy future states for replay
+        self.enemy_history = []
+        self.enemy_future  = []
 
         # Enemy system (Lab 5)
         self.enemies = pygame.sprite.Group()
@@ -74,6 +74,147 @@ class Level:
 
         # Debug mode for showing enemy paths
         self.show_enemy_debug = False
+
+        # ---------------------------------------------------------------
+        # Leaderboard / scoring
+        # ---------------------------------------------------------------
+        self.score = 0
+        self.start_time = pygame.time.get_ticks()
+        self.game_over = False
+        self._game_over_time = 0
+        self._score_recorded = False
+
+        # Fonts for the end screen / HUD
+        self._go_font_large = pygame.font.Font(None, 80)
+        self._go_font_med   = pygame.font.Font(None, 48)
+        self._go_font_small = pygame.font.Font(None, 32)
+
+        # End-screen buttons
+        btn_w, btn_h = 260, 55
+        cx = WIDTH // 2
+        self._btn_play_again = pygame.Rect(cx - btn_w - 20, HEIGHT // 2 + 120, btn_w, btn_h)
+        self._btn_arcade     = pygame.Rect(cx + 20,          HEIGHT // 2 + 120, btn_w, btn_h)
+        self._end_action     = None   # 'restart' | 'arcade' | None
+
+    # ------------------------------------------------------------------
+    # Scoring helpers
+    # ------------------------------------------------------------------
+
+    def _on_enemy_death(self):
+        """Fired by Enemy.check_death() — increment kill counter."""
+        self.score += 1
+
+    def _active_time_str(self):
+        """Return elapsed play time as MM:SS."""
+        if self.game_over:
+            elapsed_ms = self._game_over_time - self.start_time
+        else:
+            elapsed_ms = pygame.time.get_ticks() - self.start_time
+        total_sec = elapsed_ms // 1000
+        return f"{total_sec // 60:02d}:{total_sec % 60:02d}"
+
+    # ------------------------------------------------------------------
+    # End screen
+    # ------------------------------------------------------------------
+
+    def _check_game_over(self):
+        """Trigger game-over state the moment the player runs out of HP."""
+        if not self.game_over and self.player.hp <= 0:
+            self.game_over = True
+            self._game_over_time = pygame.time.get_ticks()
+
+    def draw_end_screen(self, events):
+        """
+        Draw the full-screen game-over overlay.
+        Returns 'restart', 'arcade', or None.
+        """
+        # Semi-transparent dark overlay
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 210))
+        self.display_surface.blit(overlay, (0, 0))
+
+        cx = WIDTH // 2
+
+        # Title
+        title = self._go_font_large.render("GAME OVER", True, (220, 60, 60))
+        self.display_surface.blit(title, title.get_rect(center=(cx, HEIGHT // 2 - 180)))
+
+        # Score
+        score_surf = self._go_font_med.render(
+            f"Enemies Defeated:  {self.score}", True, (255, 215, 0))
+        self.display_surface.blit(score_surf, score_surf.get_rect(center=(cx, HEIGHT // 2 - 100)))
+
+        # Active time
+        time_surf = self._go_font_med.render(
+            f"Active Time:  {self._active_time_str()}", True, (180, 220, 255))
+        self.display_surface.blit(time_surf, time_surf.get_rect(center=(cx, HEIGHT // 2 - 45)))
+
+        # Leaderboard header
+        lb_hdr = self._go_font_small.render("— Session Leaderboard —", True, (200, 200, 200))
+        self.display_surface.blit(lb_hdr, lb_hdr.get_rect(center=(cx, HEIGHT // 2 + 20)))
+
+        # Persist leaderboard on the class so it survives Level restarts
+        if not hasattr(Level, '_leaderboard'):
+            Level._leaderboard = []
+
+        if not self._score_recorded:
+            Level._leaderboard.append({
+                'name':  self._player_label(),
+                'score': self.score,
+                'time':  self._active_time_str(),
+            })
+            Level._leaderboard.sort(key=lambda e: e['score'], reverse=True)
+            self._score_recorded = True
+
+        for rank, entry in enumerate(Level._leaderboard[:5], 1):
+            colour = (255, 215, 0) if rank == 1 else (200, 200, 200)
+            row = self._go_font_small.render(
+                f"#{rank}  {entry['name']}   {entry['score']} kills   {entry['time']}",
+                True, colour
+            )
+            self.display_surface.blit(row, row.get_rect(center=(cx, HEIGHT // 2 + 20 + rank * 34)))
+
+        # Buttons
+        mouse_pos = pygame.mouse.get_pos()
+        clicked   = any(e.type == pygame.MOUSEBUTTONDOWN and e.button == 1 for e in events)
+
+        for rect, label, action, hover_col, normal_col in [
+            (self._btn_play_again, "Play Again",       'restart', (60, 160, 60),  (35, 100, 35)),
+            (self._btn_arcade,     "Return to Arcade", 'arcade',  (160, 60, 60),  (100, 35, 35)),
+        ]:
+            hovered = rect.collidepoint(mouse_pos)
+            bg = hover_col if hovered else normal_col
+            pygame.draw.rect(self.display_surface, bg,            rect, border_radius=8)
+            pygame.draw.rect(self.display_surface, (255,255,255), rect, 2, border_radius=8)
+            lbl = self._go_font_small.render(label, True, (255, 255, 255))
+            self.display_surface.blit(lbl, lbl.get_rect(center=rect.center))
+            if clicked and hovered:
+                return action
+
+        return None
+
+    def _player_label(self):
+        """Display name for the leaderboard."""
+        try:
+            return self.network.player_name
+        except Exception:
+            return "Player"
+
+    # ------------------------------------------------------------------
+    # Live score HUD
+    # ------------------------------------------------------------------
+
+    def _draw_score_hud(self):
+        """Kill counter + timer in the top-right corner."""
+        surf = self._go_font_small.render(
+            f"Kills: {self.score}   Time: {self._active_time_str()}",
+            True, (255, 215, 0)
+        )
+        self.display_surface.blit(surf, (WIDTH - surf.get_width() - 12, 10))
+
+    # ------------------------------------------------------------------
+    # Map creation
+    # ------------------------------------------------------------------
 
     def create_map(self):
         """Create the game map from CSV layers and spawn the player."""
@@ -119,7 +260,6 @@ class Level:
         self.player.destroy_attack_callback = self.destroy_attack
 
     def _build_tile_libraries(self):
-        """Load terrain and object surfaces used by the CSV map layers."""
         terrain_tiles = {
             0: self._load_tilemap_image('asphalt.png'),
             1: self._load_tilemap_image('city_pavers.png'),
@@ -143,39 +283,31 @@ class Level:
         return terrain_tiles, object_tiles
 
     def _load_tilemap_image(self, filename, alpha=True):
-        """Load a tilemap asset from graphics/tilemap."""
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         path = os.path.join(project_root, 'graphics', 'tilemap', filename)
         image = pygame.image.load(path)
         return image.convert_alpha() if alpha else image.convert()
 
     def add_starting_items(self):
-        """Add items defined in item.py's create_example_items() to the player's inventory."""
         print("Adding starting items to inventory...")
-
         for item in create_example_items():
             success = self.player.inventory.add_item(item)
             if success:
                 print(f"  Added: {item.name}")
             else:
                 print(f"  Inventory full! Couldn't add: {item.name}")
-
         print(f"Total items: {len(self.player.inventory.items)}")
-
-        # Auto-equip the first weapon so combat works immediately on startup
         for item in self.player.inventory.items:
             if item.item_type == 'weapon':
                 self.player.equipped_weapon = item
                 print(f"Auto-equipped: {item.name}")
                 break
-
         print("Press 'I' to open inventory and switch weapons. SPACE to attack!")
 
     def create_enemies(self):
-        """Create enemies — patrol types use linked list paths (Lab 5), random type wanders freely."""
+        """Create enemies with on_death callback for kill scoring."""
         try:
             print("Creating enemies...")
-
             for data in ENEMY_SPAWN_DATA:
                 try:
                     combat_kwargs = dict(
@@ -185,10 +317,10 @@ class Level:
                         notice_radius=data.get("notice_radius", 200),
                         attack_radius=data.get("attack_radius", 60),
                         damage_player=self.damage_player,
+                        on_death=self._on_enemy_death,   # <-- score callback
                     )
 
                     if data["patrol_type"] == "random":
-                        # Random enemy: no patrol path needed
                         enemy = Enemy(
                             name=data["name"],
                             start_x=data["spawn"][0],
@@ -201,7 +333,6 @@ class Level:
                             **combat_kwargs
                         )
                     else:
-                        # Patrol enemy: build linked list path
                         patrol_path = PatrolPath(data["patrol_type"])
                         for waypoint in data["waypoints"]:
                             x, y = waypoint
@@ -222,8 +353,8 @@ class Level:
                     self.visible_sprites.add(enemy)
                     self.obstacle_sprites.add(enemy)
                     self.attackable_sprites.add(enemy)
-
                     print(f"  Created: {data['name']} ({data['patrol_type']})")
+
                 except Exception as e:
                     print(f"  Failed to create enemy {data['name']}: {e}")
 
@@ -235,62 +366,52 @@ class Level:
 
         except ImportError as e:
             print(f"Enemies not available yet: {e}")
-            print("Complete the linked list implementation in datastructures/ to enable patrol enemies!")
         except Exception as e:
             print(f"Error setting up enemies: {e}")
-            print("Check your Waypoint and PatrolPath implementations!")
 
     # ------------------------------------------------------------------
     # Combat
     # ------------------------------------------------------------------
 
     def create_attack(self):
-        """Spawn a weapon sprite in front of the player (called on SPACE)."""
         self.current_attack = WeaponSprite(self.player, [self.visible_sprites, self.attack_sprites])
 
     def destroy_attack(self):
-        """Remove the weapon sprite when the attack cooldown ends."""
         if self.current_attack:
             self.current_attack.kill()
         self.current_attack = None
 
     def player_attack_logic(self):
-        """Check weapon sprite vs every enemy each frame."""
         for attack_sprite in list(self.attack_sprites):
             for enemy in pygame.sprite.spritecollide(attack_sprite, self.attackable_sprites, False):
                 was_alive = enemy.health > 0
                 enemy.get_damage(self.player)
                 if was_alive and enemy.health <= 0:
-                    self.player.exp += enemy.exp   # award XP exactly once on kill
+                    self.player.exp += enemy.exp
 
     def damage_player(self, amount):
-        """Called by enemies when they land an attack."""
         self.player.take_damage(amount)
 
     # ------------------------------------------------------------------
+    # Network
+    # ------------------------------------------------------------------
 
     def update_network(self):
-        """Handle network synchronization"""
         if not self.connected:
             self.connection_status = "Disconnected"
             return
 
-        # Send our position, character type, and status to server
         character_type = self.player.character_name.lower()
         status = self.player.status.replace("_idle", "").replace("_attack", "")
         self.network.send_update(self.player.rect.x, self.player.rect.y, character_type, status)
 
-        # Get updates from server
         updates = self.network.get_updates()
-
         if updates:
             self.connection_status = f"Connected - {len(updates)} players online ({self.network.serializer.upper()})"
-
             current_player_ids = set()
 
             for player_id, data in updates.items():
                 current_player_ids.add(player_id)
-
                 if player_id == self.network.my_player_id:
                     continue
 
@@ -298,18 +419,14 @@ class Level:
                     character_type = data.get('character_type', '').lower()
                     if not character_type:
                         continue
-
                     all_classes = get_all_character_classes()
                     CharClass = None
                     for cls in all_classes:
                         if cls.get_display_name().lower() == character_type:
                             CharClass = cls
                             break
-
                     if CharClass is None:
                         CharClass = Character
-                        print(f"[WARNING] Unknown character type '{character_type}', using default")
-
                     other_player = CharClass(
                         (data['x'], data['y']),
                         [self.visible_sprites],
@@ -319,7 +436,6 @@ class Level:
                     )
                     other_player.name = data['name']
                     self.other_players[player_id] = other_player
-                    print(f"[DEBUG] Created remote player {player_id} as {character_type}")
                 else:
                     other_player = self.other_players[player_id]
                     other_player.set_position(data['x'], data['y'])
@@ -334,41 +450,37 @@ class Level:
 
             self.player.other_players = list(self.other_players.values())
 
+    # ------------------------------------------------------------------
+    # Events
+    # ------------------------------------------------------------------
+
     def handle_events(self, events):
-        """Handle pygame events (pass from main game loop)"""
         for event in events:
             self.inventory_ui.handle_event(event, self.player)
 
     def draw_names(self):
-        """Draw player names above their heads"""
         if self.network.my_player_id is not None:
             name_text = f"{self.network.player_name} ({self.player.character_name})"
             name_surface = self.font.render(name_text, True, (0, 255, 0))
             name_rect = name_surface.get_rect(
-                center=(self.player.rect.centerx, self.player.rect.top - 10)
-            )
+                center=(self.player.rect.centerx, self.player.rect.top - 10))
             offset_pos = self.visible_sprites.offset_from_world(name_rect.topleft)
             self.display_surface.blit(name_surface, offset_pos)
 
         for other_player in self.other_players.values():
             name_surface = self.font.render(other_player.name, True, (100, 100, 255))
             name_rect = name_surface.get_rect(
-                center=(other_player.rect.centerx, other_player.rect.top - 10)
-            )
+                center=(other_player.rect.centerx, other_player.rect.top - 10))
             offset_pos = self.visible_sprites.offset_from_world(name_rect.topleft)
             self.display_surface.blit(name_surface, offset_pos)
 
     def draw_status(self):
-        """Draw HUD: connection, hints, health bar, XP, equipped weapon."""
-        # Connection status
         status_color = (0, 255, 0) if self.connected else (255, 100, 100)
         self.display_surface.blit(
             self.font.render(self.connection_status, True, status_color), (10, 10))
-
         self.display_surface.blit(
             self.font.render("I: Inventory | SPACE: Attack", True, (255, 255, 255)), (10, 40))
 
-        # Health bar
         bar_rect  = pygame.Rect(10, 70, HEALTH_BAR_WIDTH, BAR_HEIGHT)
         ratio     = max(0.0, self.player.hp / max(1, self.player.max_hp))
         fill_rect = pygame.Rect(10, 70, int(HEALTH_BAR_WIDTH * ratio), BAR_HEIGHT)
@@ -379,11 +491,9 @@ class Level:
             self.font.render(f"HP {self.player.hp}/{self.player.max_hp}", True, (255, 255, 255)),
             (10 + HEALTH_BAR_WIDTH + 8, 70))
 
-        # XP
         self.display_surface.blit(
             self.font.render(f"XP: {self.player.exp}", True, (255, 215, 0)), (10, 100))
 
-        # Equipped weapon
         if self.player.equipped_weapon:
             w = self.player.equipped_weapon
             msg = f"Weapon: {w.name}  (+{w.attack_bonus} atk)"
@@ -394,11 +504,10 @@ class Level:
         self.display_surface.blit(self.font.render(msg, True, color), (10, 125))
 
     # ------------------------------------------------------------------
-    # Time travel + enemy state snapshots
+    # Time travel
     # ------------------------------------------------------------------
 
     def _snapshot_enemies(self):
-        """Capture full enemy state (position, patrol cursor, combat) for time-travel."""
         enemies = []
         for enemy in self.enemies:
             enemies.append({
@@ -417,7 +526,6 @@ class Level:
         return {'enemies': enemies, 'player_hp': self.player.hp}
 
     def _restore_enemies(self, snapshot):
-        """Restore full enemy state from a snapshot (also restores player HP)."""
         enemy_list = snapshot['enemies'] if isinstance(snapshot, dict) else snapshot
         for enemy, state in zip(self.enemies, enemy_list):
             enemy.rect.x = state['x']
@@ -439,16 +547,12 @@ class Level:
 
         if isinstance(snapshot, dict):
             self.player.hp = snapshot.get('player_hp', self.player.hp)
-            self.player.vulnerable = True   # reset after rewind
+            self.player.vulnerable = True
 
     def record_player_state(self):
         if not self.is_time_traveling and not self.connected:
             prev_size = self.time_travel.get_history_size()
-            self.time_travel.record_state(
-                self.player.rect.x,
-                self.player.rect.y
-            )
-            # Only sync enemy history when TimeTravel actually recorded a frame
+            self.time_travel.record_state(self.player.rect.x, self.player.rect.y)
             if self.time_travel.get_history_size() > prev_size:
                 self.enemy_history.append(self._snapshot_enemies())
                 while len(self.enemy_history) > self.time_travel.max_history:
@@ -491,18 +595,15 @@ class Level:
 
     def draw_time_travel_ui(self):
         font_small = pygame.font.Font(None, 24)
-
         if not self.connected:
             if self.is_time_traveling:
                 font_large = pygame.font.Font(None, 48)
                 text = font_large.render("⏪ TIME TRAVELING", True, (255, 100, 100))
                 rect = text.get_rect(center=(WIDTH // 2, 50))
                 self.display_surface.blit(text, rect)
-
             info = f"History: {self.time_travel.get_history_size()} | Future: {self.time_travel.get_future_size()}"
             text = font_small.render(info, True, (255, 255, 255))
             self.display_surface.blit(text, (10, 100))
-
             hint = "R: Rewind | F: Replay"
             text = font_small.render(hint, True, (200, 200, 200))
             self.display_surface.blit(text, (10, 130))
@@ -515,26 +616,40 @@ class Level:
     # ------------------------------------------------------------------
 
     def run(self, events):
-        """Main update loop"""
+        """Main update and draw loop."""
         self.handle_events(events)
         self.handle_time_travel_input(events)
         self.handle_enemy_debug_input(events)
 
+        # Check whether player just died
+        self._check_game_over()
+
+        if self.game_over:
+            # Draw world underneath, then overlay end screen
+            self.visible_sprites.custom_draw(
+                self.player,
+                floor_sprites=self.floor_sprites,
+                ground_surface=self.ground_texture,
+                map_size=(self.map_pixel_width, self.map_pixel_height)
+            )
+            action = self.draw_end_screen(events)
+            if action:
+                self._end_action = action
+            return   # skip normal updates while end screen is showing
+
+        # Normal gameplay
         self.update_network()
 
-        # Update player and remote players
         self.player.update()
         for other_player in self.other_players.values():
             other_player.update()
 
-        # Update enemies; freeze them while time-traveling
         if not self.is_time_traveling:
             for enemy in list(self.enemies):
-                enemy.enemy_update(self.player)   # set combat AI state first
-            self.enemies.update()                  # then move/animate/check death
-            self.player_attack_logic()             # weapon collisions
+                enemy.enemy_update(self.player)
+            self.enemies.update()
+            self.player_attack_logic()
 
-        # Draw (Y-sorted; custom_draw does NOT call update())
         self.visible_sprites.custom_draw(
             self.player,
             floor_sprites=self.floor_sprites,
@@ -548,6 +663,7 @@ class Level:
         self.draw_status()
         self.draw_time_travel_ui()
         self.draw_enemy_debug()
+        self._draw_score_hud()   # live kill counter top-right
 
         if self.inventory_ui.active:
             self.inventory_ui.draw(self.display_surface)
@@ -557,27 +673,20 @@ class Level:
     # ------------------------------------------------------------------
 
     def handle_enemy_debug_input(self, events):
-        """Handle enemy debug controls (Lab 5)."""
         for event in events:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_n:
                     self.show_enemy_debug = not self.show_enemy_debug
                     status = "ON" if self.show_enemy_debug else "OFF"
-                    count = len(self.enemies)
-                    print(f"Enemy debug view: {status} ({count} enemies active)")
-
+                    print(f"Enemy debug view: {status} ({len(self.enemies)} enemies active)")
                 elif event.key == pygame.K_m:
-                    reset_count = 0
                     for enemy in self.enemies:
                         enemy.reset_patrol()
-                        reset_count += 1
-                    print(f"Reset {reset_count} enemy patrols")
+                    print(f"Reset {len(self.enemies)} enemy patrols")
 
     def draw_enemy_debug(self):
-        """Draw enemy debug information (Lab 5)."""
         if not self.show_enemy_debug:
             return
-
         if len(self.enemies) == 0:
             font = pygame.font.Font(None, 24)
             text = font.render("No patrol enemies - implement Waypoint and PatrolPath!", True, (255, 255, 100))
@@ -591,15 +700,10 @@ class Level:
             text = font.render(status, True, (255, 255, 100))
             self.display_surface.blit(text, (10, y_offset))
             y_offset += 25
-
             enemy.draw_debug_info(self.display_surface,
                                   (self.visible_sprites.offset.x, self.visible_sprites.offset.y))
 
-        instructions = [
-            "Enemy Debug Controls:",
-            "N: Toggle debug view",
-            "M: Reset all patrols"
-        ]
+        instructions = ["Enemy Debug Controls:", "N: Toggle debug view", "M: Reset all patrols"]
         font = pygame.font.Font(None, 18)
         for i, instruction in enumerate(instructions):
             color = (200, 200, 200) if i == 0 else (150, 150, 150)
@@ -618,7 +722,6 @@ class YSortCameraGroup(pygame.sprite.Group):
         self.offset = pygame.math.Vector2()
 
     def custom_draw(self, player, floor_sprites=None, ground_surface=None, map_size=(0, 0)):
-        """Draw the world background, floor tiles, then Y-sorted sprites."""
         self.offset.x = player.rect.centerx - self.half_width
         self.offset.y = player.rect.centery - self.half_height
 
@@ -635,7 +738,6 @@ class YSortCameraGroup(pygame.sprite.Group):
             self.display_surface.blit(sprite.image, offset_pos)
 
     def draw_ground(self, ground_surface, map_size):
-        """Tile the base ground texture across the map bounds."""
         map_width, map_height = map_size
         tile_w, tile_h = ground_surface.get_size()
         start_x = int(self.offset.x // tile_w) * tile_w
@@ -649,5 +751,4 @@ class YSortCameraGroup(pygame.sprite.Group):
                 self.display_surface.blit(ground_surface, screen_pos)
 
     def offset_from_world(self, world_pos):
-        """Convert world position to screen position"""
         return pygame.math.Vector2(world_pos) - self.offset
