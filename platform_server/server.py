@@ -238,6 +238,7 @@ class PlatformServer:
                 f"player={payload.get('player_id') or payload.get('username')} "
                 f"game={payload.get('game_id')} score={payload.get('score')} "
                 f"accepted={report.accepted}"
+                + (f" errors={report.validation_errors}" if report.validation_errors else "")
             )
             return {"ok": report.accepted, "message": report.message, "errors": report.validation_errors}
         return {"ok": False, "message": f"Unknown platform request: {action or '<empty>'}."}

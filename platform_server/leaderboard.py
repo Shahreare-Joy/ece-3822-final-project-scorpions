@@ -60,8 +60,9 @@ class LeaderboardService:
     def submit_score(self, game_id: str, username: str, score: int, timestamp: str = "") -> bool:
         '''submit score and update leaderboard indexes'''
 
-        # reject invalid game/user/score inputs
-        if not game_id or not username or score < 0:
+        # reject invalid game/user/score inputs. Zero-score sessions still
+        # belong in history/profile, but not on scoreboards.
+        if not game_id or not username or score <= 0:
             return False
 
         # get leaderboard for this game

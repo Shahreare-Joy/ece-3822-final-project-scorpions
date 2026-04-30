@@ -189,6 +189,13 @@ class Game:
         storage_dir = os.environ.get("SCORPIONS_CHAT_DIR")
         if not storage_dir:
             storage_dir = str(PROJECT_ROOT / "data" / "runtime_chat")
+        print(
+            "[CHAT] Forgotten overlay "
+            f"session={session_id} "
+            f"platform={os.environ.get('SCORPIONS_PLATFORM_CHAT', '0')} "
+            f"host={os.environ.get('SCORPIONS_PLATFORM_HOST', '')}:"
+            f"{os.environ.get('SCORPIONS_PLATFORM_PORT', '')}"
+        )
         return ChatOverlay(
             ChatOverlayConfig(
                 session_id=session_id,
@@ -226,12 +233,26 @@ class Game:
         except OSError as exc:
             print(f"[RESULT] Could not write Forgotten result: {exc}")
 
+    def dispose_level(self):
+        """Clear the active gameplay/network state before restart or exit."""
+        if self.level is None:
+            return
+        try:
+            dispose = getattr(self.level, "dispose", None)
+            if callable(dispose):
+                dispose()
+            elif getattr(self.level, "network", None):
+                self.level.network.disconnect()
+        except Exception as exc:
+            print(f"[CLEANUP] Forgotten level cleanup failed: {exc}")
+        finally:
+            self.level = None
+
     def cleanup_and_exit(self, outcome="Quit"):
         self.write_session_result(outcome)
         if self.chat_overlay:
             self.chat_overlay.close()
-        if self.level is not None:
-            self.level.network.disconnect()
+        self.dispose_level()
         pygame.quit()
         sys.exit()
 
@@ -374,10 +395,12 @@ class Game:
 
                 action = getattr(self.level, "_end_action", None)
                 if action == "restart":
+                    self.dispose_level()
                     break
                 if action == "arcade":
                     if os.environ.get("client_LAUNCH") == "1":
                         self.cleanup_and_exit(getattr(self.level, "outcome", "Finished"))
+                    self.dispose_level()
                     self.selected_character = None
                     break
 

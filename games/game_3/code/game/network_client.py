@@ -220,5 +220,17 @@ class NetworkClient:
         """Disconnect from server"""
         self.running = False
         self.connected = False
-        if self.sock:
-            self.sock.close()
+        sock = self.sock
+        self.sock = None
+        if sock:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                sock.close()
+            except OSError:
+                pass
+        self.my_player_id = None
+        self.update_queue = Queue()
+        print("Disconnected from server")

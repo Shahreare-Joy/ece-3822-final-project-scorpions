@@ -156,9 +156,11 @@ class SessionResultProcessor:
         profile_updated = self.update_player_profile(result)
         persisted = self.persist_result(result)
 
-        # mark session_id as processed
-        if result.session_id:
-            self._processed_session_ids.put(result.session_id, True)
+        # mark this exact result as processed. A shared session can contain
+        # multiple players, so session_id alone is too broad for dedupe.
+        result_key = self._result_key(result)
+        if result_key:
+            self._processed_session_ids.put(result_key, True)
 
         # return processing report
         return SessionResultProcessingReport(
@@ -195,15 +197,23 @@ class SessionResultProcessor:
         if result.score > 1_000_000_000:
             errors.append("score exceeds scaffold safety cap")
 
-        # duplicate session protection
-        if result.session_id and self._processed_session_ids.contains(result.session_id):
-            errors.append("session_id was already submitted")
+        # duplicate result protection
+        result_key = self._result_key(result)
+        if result_key and self._processed_session_ids.contains(result_key):
+            errors.append("session result was already submitted")
 
         # TODO (DONE)(ANTI-CHEAT): Validate broad score bounds before accepting.
         # TODO(AUTH): Verify the player token/session token came from the server.
         # TODO (DONE)(REPLAY): Reject duplicate session_id submissions.
 
         return errors
+
+    def _result_key(self, result: SessionResult) -> str:
+        """Return a stable key for one player's completed result."""
+
+        if not result.session_id:
+            return ""
+        return f"{result.session_id}|{result.player_id}|{result.game_id}|{result.timestamp}"
 
     def update_leaderboard(self, result: SessionResult) -> bool:
         '''update leaderboard with new score'''

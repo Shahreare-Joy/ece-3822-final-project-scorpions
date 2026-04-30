@@ -567,16 +567,17 @@ class MockArcadeBackend:
             player.total_sessions += 1
             if outcome.lower() == "win":
                 player.total_wins += 1
-            self.leaderboard_service.add_entry(
-                LeaderboardEntry(
-                    game_id=game.game_id,
-                    username=player.username,
-                    display_name=player.display_name,
-                    score=score,
-                    wins=player.total_wins,
-                    rank=0,
+            if score > 0:
+                self.leaderboard_service.add_entry(
+                    LeaderboardEntry(
+                        game_id=game.game_id,
+                        username=player.username,
+                        display_name=player.display_name,
+                        score=score,
+                        wins=player.total_wins,
+                        rank=0,
+                    )
                 )
-            )
             self.profile_service = ProfileService(self.players)
         self.invalidate_player_cache(username)
         if player is not None:

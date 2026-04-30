@@ -477,6 +477,38 @@ class Level:
             self._end_action = "arcade"
 
     # ------------------------------------------------------------------
+
+    def dispose(self):
+        """Remove sprites and disconnect the gameplay socket before restarting."""
+        try:
+            self.network.disconnect()
+        except Exception as exc:
+            print(f"[CLEANUP] Mystical Bamboo network disconnect failed: {exc}")
+
+        for other_player in list(self.other_players.values()):
+            other_player.kill()
+        self.other_players.clear()
+        if hasattr(self.player, "other_players"):
+            self.player.other_players = []
+
+        self.current_attack = None
+        self.dialog_ui = None
+        for group_name in (
+            "attack_sprites",
+            "attackable_sprites",
+            "enemies",
+            "npcs",
+            "visible_sprites",
+            "ground_sprites",
+            "object_sprites",
+            "obstacle_sprites",
+        ):
+            group = getattr(self, group_name, None)
+            if hasattr(group, "empty"):
+                group.empty()
+        self.enemy_respawn_queue.clear()
+
+    # ------------------------------------------------------------------
     # Network
     # ------------------------------------------------------------------
 
@@ -500,6 +532,11 @@ class Level:
             for pid, data in updates.items():
                 current_ids.add(pid)
                 if pid == self.network.my_player_id:
+                    continue
+                if data.get('name') == self.network.player_name:
+                    if pid in self.other_players:
+                        self.other_players[pid].kill()
+                        del self.other_players[pid]
                     continue
                 if pid not in self.other_players:
                     ctype = data.get('character_type', '').lower()

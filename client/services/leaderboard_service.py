@@ -24,6 +24,8 @@ class LeaderboardService:
 
     def _build_indexes(self) -> None:
         for entry in self.entries:
+            if entry.score <= 0:
+                continue
             rows = self._game_entries.get(entry.game_id)
             if not isinstance(rows, list):
                 rows = []
@@ -43,6 +45,8 @@ class LeaderboardService:
     def add_entry(self, entry: LeaderboardEntry) -> None:
         """Add a completed-game score and rebuild rank indexes."""
 
+        if entry.score <= 0:
+            return
         self.entries.append(entry)
         self._game_entries = ChainedHashTable()
         self._score_ranges = ChainedHashTable()

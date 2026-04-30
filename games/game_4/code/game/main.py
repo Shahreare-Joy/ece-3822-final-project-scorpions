@@ -183,12 +183,20 @@ class Game:
     def create_chat_overlay(self):
         if ChatOverlay is None or ChatOverlayConfig is None:
             return None
+        session_id = os.environ.get("SCORPIONS_SESSION_ID", "mystical-bamboo-local")
         storage_dir = os.environ.get("SCORPIONS_CHAT_DIR")
         if not storage_dir:
             storage_dir = str(PROJECT_ROOT / "data" / "runtime_chat")
+        print(
+            "[CHAT] Mystical Bamboo overlay "
+            f"session={session_id} "
+            f"platform={os.environ.get('SCORPIONS_PLATFORM_CHAT', '0')} "
+            f"host={os.environ.get('SCORPIONS_PLATFORM_HOST', '')}:"
+            f"{os.environ.get('SCORPIONS_PLATFORM_PORT', '')}"
+        )
         return ChatOverlay(
             ChatOverlayConfig(
-                session_id=os.environ.get("SCORPIONS_SESSION_ID", "mystical-bamboo-local"),
+                session_id=session_id,
                 sender_name=os.environ.get("SCORPIONS_DISPLAY_NAME") or self.player_name,
                 title=os.environ.get("SCORPIONS_CHAT_TITLE", "Mystical Bamboo Chat"),
                 storage_dir=storage_dir,
@@ -226,12 +234,26 @@ class Game:
         except OSError as exc:
             print(f"[RESULT] Could not write Mystical Bamboo result: {exc}")
 
+    def dispose_level(self):
+        """Clear the active gameplay/network state before restart or exit."""
+        if self.level is None:
+            return
+        try:
+            dispose = getattr(self.level, "dispose", None)
+            if callable(dispose):
+                dispose()
+            elif getattr(self.level, "network", None):
+                self.level.network.disconnect()
+        except Exception as exc:
+            print(f"[CLEANUP] Mystical Bamboo level cleanup failed: {exc}")
+        finally:
+            self.level = None
+
     def cleanup_and_exit(self, outcome="Quit"):
         self.write_session_result(outcome)
         if self.chat_overlay:
             self.chat_overlay.close()
-        if self.level is not None:
-            self.level.network.disconnect()
+        self.dispose_level()
         pygame.quit()
         sys.exit()
 
@@ -355,7 +377,14 @@ class Game:
                 events = []
                 for event in pygame.event.get():
                     if self.chat_overlay and not getattr(self.level, "game_over", False):
-                        if event.type == pygame.KEYDOWN and event.key == pygame.K_t and not self.chat_overlay.input_active:
+                        if (
+                            event.type == pygame.KEYDOWN
+                            and event.key == pygame.K_t
+                            and not self.chat_overlay.input_active
+                            and callable(getattr(self.level, "_get_nearby_npc", None))
+                            and self.level._get_nearby_npc() is not None
+                        ):
+                            # T talks to nearby NPCs; otherwise T/C still toggle chat.
                             pass
                         elif self.chat_overlay.handle_event(event):
                             continue
@@ -377,10 +406,12 @@ class Game:
 
                 action = getattr(self.level, "_end_action", None)
                 if action == "restart":
+                    self.dispose_level()
                     break
                 if action == "arcade":
                     if os.environ.get("client_LAUNCH") == "1":
                         self.cleanup_and_exit(getattr(self.level, "outcome", "Finished"))
+                    self.dispose_level()
                     self.selected_character = None
                     break
 
