@@ -13,6 +13,7 @@ Lab: Lab 2 - Character Classes
 
 import pygame
 from settings import *
+from character import Character as BaseCharacter
 
 class Character(pygame.sprite.Sprite):
     """Base Character class - all characters inherit from this"""
@@ -146,23 +147,21 @@ class Character(pygame.sprite.Sprite):
 # IMPLEMENTED CHARACTER CLASSES 
 # ============================================
 
-class BambooVanguard(Character):
-    def __init__(self, pos, groups, obstacle_sprites, name, is_local=False):
-        super().__init__(pos, groups, obstacle_sprites)
+class BambooVanguard(BaseCharacter):
+    def __init__(self, pos, groups, obstacle_sprites, name="Player", is_local=False, player_id=None):
+        super().__init__(pos, groups, obstacle_sprites, player_id=player_id or name, is_local=is_local)
         self.is_local = is_local
-        self.player_name = name
-
-        self.image = pygame.image.load('../graphics/characters/bamboo_vanguard.png').convert_alpha()
-        self.rect = self.image.get_rect(topleft=pos)
-        self.hitbox = self.rect.inflate(0, -26)
+        self.player_name = name or str(player_id or "Player")
+        self.name = self.player_name
 
         self.character_name = "Bamboo Vanguard"
+        self.sprite_name = "bamboovanguard"
         self.hp = 70 
         self.max_hp = 70
         self.attack = 50
         self.defense = 100
-        self.speed = 50
-        self._validate_stats()
+        self.speed = 5
+        self.import_player_assets()
 
     def special_ability(self):
         self.heal(self.max_hp // 10)
@@ -177,26 +176,24 @@ class BambooVanguard(Character):
     
     @staticmethod
     def get_preview_image():
-        return '../graphics/characters/bamboo_vanguard.png'
+        return '../../graphics/characters/bamboovanguard.png'
 
 
-class SilkbladeDuelist(Character):
-    def __init__(self, pos, groups, obstacle_sprites, name, is_local=False):
-        super().__init__(pos, groups, obstacle_sprites)
+class SilkbladeDuelist(BaseCharacter):
+    def __init__(self, pos, groups, obstacle_sprites, name="Player", is_local=False, player_id=None):
+        super().__init__(pos, groups, obstacle_sprites, player_id=player_id or name, is_local=is_local)
         self.is_local = is_local
-        self.player_name = name
-
-        self.image = pygame.image.load('../graphics/characters/silkblade_duelist.png').convert_alpha()
-        self.rect = self.image.get_rect(topleft=pos)
-        self.hitbox = self.rect.inflate(0, -26)
+        self.player_name = name or str(player_id or "Player")
+        self.name = self.player_name
 
         self.character_name = "Silkblade Duelist"
+        self.sprite_name = "silkbladeduelist"
         self.hp = 70    
         self.max_hp = 70
         self.attack = 100
         self.defense = 40
-        self.speed = 80
-        self._validate_stats()
+        self.speed = 7
+        self.import_player_assets()
 
     def special_ability(self):
         self.dodge_chance = 1.0  
@@ -211,26 +208,24 @@ class SilkbladeDuelist(Character):
 
     @staticmethod
     def get_preview_image():
-        return '../graphics/characters/silkblade_duelist.png'
+        return '../../graphics/characters/silkbladeduelist.png'
 
 
-class Monk(Character):
-    def __init__(self, pos, groups, obstacle_sprites, name, is_local=False):
-        super().__init__(pos, groups, obstacle_sprites)
+class Monk(BaseCharacter):
+    def __init__(self, pos, groups, obstacle_sprites, name="Player", is_local=False, player_id=None):
+        super().__init__(pos, groups, obstacle_sprites, player_id=player_id or name, is_local=is_local)
         self.is_local = is_local
-        self.player_name = name
-
-        self.image = pygame.image.load('../graphics/characters/monk.png').convert_alpha()
-        self.rect = self.image.get_rect(topleft=pos)
-        self.hitbox = self.rect.inflate(0, -26)
+        self.player_name = name or str(player_id or "Player")
+        self.name = self.player_name
 
         self.character_name = "Monk"
+        self.sprite_name = "monk"
         self.hp = 100    
         self.max_hp = 100
         self.attack = 50
         self.defense = 75
-        self.speed = 40
-        self._validate_stats()  
+        self.speed = 4
+        self.import_player_assets()
 
     def special_ability(self):
         self.defense += 10
@@ -245,26 +240,24 @@ class Monk(Character):
     
     @staticmethod
     def get_preview_image():
-        return  '../graphics/characters/monk.png'
+        return  '../../graphics/characters/monk.png'
     
 
-class WanderingTraveler(Character):
-    def __init__(self, pos, groups, obstacle_sprites, name, is_local=False):
-        super().__init__(pos, groups, obstacle_sprites)
+class WanderingTraveler(BaseCharacter):
+    def __init__(self, pos, groups, obstacle_sprites, name="Player", is_local=False, player_id=None):
+        super().__init__(pos, groups, obstacle_sprites, player_id=player_id or name, is_local=is_local)
         self.is_local = is_local
-        self.player_name = name
-
-        self.image = pygame.image.load('../graphics/characters/wandering_traveler.png').convert_alpha()
-        self.rect = self.image.get_rect(topleft=pos)
-        self.hitbox = self.rect.inflate(0, -26)
+        self.player_name = name or str(player_id or "Player")
+        self.name = self.player_name
 
         self.character_name = "Wandering Traveler"
+        self.sprite_name = "wanderingtraveler"
         self.hp = 70
         self.max_hp = 70
         self.attack = 70
         self.defense = 70
-        self.speed = 70
-        self._validate_stats()
+        self.speed = 6
+        self.import_player_assets()
 
     def special_ability(self):
         self.all_stats_boost = True 
@@ -279,7 +272,7 @@ class WanderingTraveler(Character):
     
     @staticmethod
     def get_preview_image():
-        return '../graphics/characters/wandering_traveler.png'
+        return '../../graphics/characters/wanderingtraveler.png'
 
 
 # ============================================
@@ -288,4 +281,4 @@ class WanderingTraveler(Character):
 
 def get_all_character_classes():
     """Return list of all character classes"""
-    return [cls for cls in Character.__subclasses__() if cls.__name__ != 'Character']
+    return [BambooVanguard, SilkbladeDuelist, Monk, WanderingTraveler]

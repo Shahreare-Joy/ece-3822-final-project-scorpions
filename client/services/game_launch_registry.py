@@ -123,6 +123,7 @@ GAME_LAUNCH_TARGETS: dict[str, GameLaunchTarget] = {
         title="Mystical Bamboo",
         creator="Team Member 4",
         folder_name="game_4",
+        script_args=("{username}", "--server", "{server_host}", "--port", "{server_port}", "--serializer", "{serializer}"),
         not_connected_message="Game 4 is not pasted into games/game_4/code/game/main.py yet.",
     ),
     # TEMP TEST GAME - SAFE TO DELETE LATER:

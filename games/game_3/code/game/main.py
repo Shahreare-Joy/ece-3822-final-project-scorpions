@@ -7,9 +7,23 @@ Integrated version combining lab-03 and project-01
 import pygame
 import sys
 import argparse
+import os
+import json
+from pathlib import Path
+from datetime import datetime, timezone
 from settings import *
 from level import Level
 from subcharacter import get_all_character_classes
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    from client.components import ChatOverlay, ChatOverlayConfig
+except Exception:
+    ChatOverlay = None
+    ChatOverlayConfig = None
 
 class Button:
     def __init__(self, x, y, width, height, fg, bg, content, fontsize):
@@ -163,6 +177,63 @@ class Game:
         self.selected_character = None
         self.level = None
         self.running = True
+        self.result_written = False
+        self.chat_overlay = self.create_chat_overlay()
+
+    def create_chat_overlay(self):
+        """Create lower-left session chat in arcade and direct-run modes."""
+        if ChatOverlay is None or ChatOverlayConfig is None:
+            return None
+        session_id = os.environ.get("SCORPIONS_SESSION_ID", "forgotten-local")
+        sender = os.environ.get("SCORPIONS_DISPLAY_NAME") or self.player_name
+        storage_dir = os.environ.get("SCORPIONS_CHAT_DIR")
+        if not storage_dir:
+            storage_dir = str(PROJECT_ROOT / "data" / "runtime_chat")
+        return ChatOverlay(
+            ChatOverlayConfig(
+                session_id=session_id,
+                sender_name=sender,
+                title=os.environ.get("SCORPIONS_CHAT_TITLE", "Forgotten Chat"),
+                storage_dir=storage_dir,
+            )
+        )
+
+    def write_session_result(self, outcome="Quit"):
+        if self.result_written:
+            return
+        result_path = os.environ.get("SCORPIONS_RESULT_PATH", "").strip()
+        if not result_path or self.level is None:
+            return
+        duration = int(getattr(self.level, "elapsed_seconds", lambda: 0)())
+        result_label = getattr(self.level, "result", "lose")
+        payload = {
+            "player_id": self.player_name,
+            "game_id": os.environ.get("SCORPIONS_GAME_ID", "turbo-sprint"),
+            "session_id": os.environ.get("SCORPIONS_SESSION_ID", ""),
+            "score": int(getattr(self.level, "score", 0)),
+            "outcome": outcome,
+            "result": result_label,
+            "duration_seconds": duration,
+            "duration": duration,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "metadata": {"score_type": "kills"},
+        }
+        try:
+            with open(result_path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle)
+            self.result_written = True
+            print(f"[RESULT] Forgotten kills submitted locally: {payload['score']}")
+        except OSError as exc:
+            print(f"[RESULT] Could not write Forgotten result: {exc}")
+
+    def cleanup_and_exit(self, outcome="Quit"):
+        self.write_session_result(outcome)
+        if self.chat_overlay:
+            self.chat_overlay.close()
+        if self.level is not None:
+            self.level.network.disconnect()
+        pygame.quit()
+        sys.exit()
 
     def character_select(self):
         """Character selection screen"""
@@ -199,17 +270,13 @@ class Game:
         
         while char_select:
             for event in pygame.event.get():
+                if self.chat_overlay and self.chat_overlay.handle_event(event):
+                    continue
                 if event.type == pygame.QUIT:
-                    char_select = False
-                    self.running = False
-                    pygame.quit()
-                    sys.exit()
+                    self.cleanup_and_exit("Quit")
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
-                        char_select = False
-                        self.running = False
-                        pygame.quit()
-                        sys.exit()
+                        self.cleanup_and_exit("Quit")
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     clicked_this_frame = True
             
@@ -258,6 +325,9 @@ class Game:
             
             # Draw network info
             self.screen.blit(network_info, network_info_rect)
+            if self.chat_overlay:
+                self.chat_overlay.update(self.clock.get_time())
+                self.chat_overlay.draw(self.screen)
             
             self.clock.tick(FPS)
             pygame.display.update()
@@ -270,34 +340,51 @@ class Game:
         if not self.running or self.selected_character is None:
             return
         
-        # Create level with selected character
-        self.level = Level(
-            self.player_name, 
-            self.selected_character, 
-            self.server_host, 
-            self.server_port, 
-            self.serializer
-        )
-        
-        # Game loop
         while self.running:
-            events = []
-            for event in pygame.event.get():
-                events.append(event)
-                if event.type == pygame.QUIT:
-                    self.level.network.disconnect()
-                    pygame.quit()
-                    sys.exit()
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        self.level.network.disconnect()
-                        pygame.quit()
-                        sys.exit()
+            self.result_written = False
+            self.level = Level(
+                self.player_name,
+                self.selected_character,
+                self.server_host,
+                self.server_port,
+                self.serializer
+            )
 
-            self.screen.fill('black')
-            self.level.run(events)
-            pygame.display.update()
-            self.clock.tick(FPS)
+            while self.running:
+                events = []
+                for event in pygame.event.get():
+                    if self.chat_overlay and not getattr(self.level, "game_over", False):
+                        if self.chat_overlay.handle_event(event):
+                            continue
+                    events.append(event)
+                    if event.type == pygame.QUIT:
+                        self.cleanup_and_exit("Quit")
+                    elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE and not getattr(self.level, "game_over", False):
+                        self.cleanup_and_exit("Quit")
+
+                self.screen.fill('black')
+                self.level.run(events)
+                if getattr(self.level, "game_over", False):
+                    self.write_session_result(getattr(self.level, "outcome", "Finished"))
+                if self.chat_overlay and not getattr(self.level, "game_over", False):
+                    self.chat_overlay.update(self.clock.get_time())
+                    self.chat_overlay.draw(self.screen)
+                pygame.display.update()
+                self.clock.tick(FPS)
+
+                action = getattr(self.level, "_end_action", None)
+                if action == "restart":
+                    break
+                if action == "arcade":
+                    if os.environ.get("client_LAUNCH") == "1":
+                        self.cleanup_and_exit(getattr(self.level, "outcome", "Finished"))
+                    self.selected_character = None
+                    break
+
+            if self.selected_character is None:
+                self.character_select()
+                if not self.running or self.selected_character is None:
+                    return
 
 
 if __name__ == '__main__':

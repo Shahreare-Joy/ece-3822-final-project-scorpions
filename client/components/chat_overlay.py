@@ -193,11 +193,11 @@ class ChatOverlay:
         input_rect = self._input_rect(surface)
         pygame.draw.rect(surface, (20, 26, 40), input_rect, border_radius=6)
         pygame.draw.rect(surface, (126, 205, 255) if self.input_active else (92, 116, 154), input_rect, width=2, border_radius=6)
-        label = self.input_text if self.input_text else "Type message..."
+        label = self._visible_input_text(input_rect.width - 16) if self.input_text else "Type message..."
         color = (240, 244, 252) if self.input_text else (170, 181, 203)
-        surface.blit(self.font.render(self._trim(label, 36), True, color), (input_rect.x + 8, input_rect.y + 6))
+        surface.blit(self.font.render(label, True, color), (input_rect.x + 8, input_rect.y + 6))
         if self.input_active and self.cursor_visible:
-            cursor_x = min(input_rect.x + 8 + self.font.size(self.input_text)[0] + 2, input_rect.right - 8)
+            cursor_x = min(input_rect.x + 8 + self.font.size(label)[0] + 2, input_rect.right - 8)
             pygame.draw.line(surface, (240, 244, 252), (cursor_x, input_rect.y + 5), (cursor_x, input_rect.bottom - 5), 2)
 
     def _draw_hidden_hint(self, surface: pygame.Surface) -> None:
@@ -271,6 +271,17 @@ class ChatOverlay:
         while trimmed and self.small_font.size(trimmed + ellipsis)[0] > max_width:
             trimmed = trimmed[:-1]
         return (trimmed or text[:1]) + ellipsis
+
+    def _visible_input_text(self, max_width: int) -> str:
+        """Show the newest typed characters instead of collapsing to ellipsis."""
+
+        text = self.input_text
+        if self.font.size(text)[0] <= max_width:
+            return text
+        visible = text
+        while visible and self.font.size(visible)[0] > max_width:
+            visible = visible[1:]
+        return visible or text[-1:]
 
     @staticmethod
     def _trim(text: str, max_chars: int) -> str:

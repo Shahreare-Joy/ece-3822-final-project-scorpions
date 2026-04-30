@@ -49,7 +49,7 @@ class Character(pygame.sprite.Sprite):
         # Damage / invulnerability frames
         self.vulnerable = True
         self.hurt_time = 0
-        self.invulnerability_duration = 500   # ms
+        self.invulnerability_duration = 1000   # ms; prevents instant repeated enemy damage
 
         # Equipped weapon (Item set via inventory UI)
         self.equipped_weapon = None
@@ -82,10 +82,11 @@ class Character(pygame.sprite.Sprite):
         from sprite_loader import SpriteLoader
         
         # Use the unified sprite loader
-        self.animations = SpriteLoader.load_character_sprites(self.character_name)
+        sprite_name = getattr(self, "sprite_name", self.character_name)
+        self.animations = SpriteLoader.load_character_sprites(sprite_name)
         
         # Debug: Print sprite loading info
-        sprite_info = SpriteLoader.get_sprite_info(self.character_name, "../../graphics/characters")
+        sprite_info = SpriteLoader.get_sprite_info(sprite_name, "../../graphics/characters")
         print(f"Loaded {sprite_info['type']} sprites for {self.character_name}: {sprite_info}")
         
         # Ensure we have all required animations, add idle versions

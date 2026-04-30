@@ -70,13 +70,6 @@ class PatrolPath:
                 self.tail.next = self.head
                 self.head.prev = self.tail
         self.size += 1
-            if self.patrol_type == "back_and_forth":
-                new_waypoint.prev = self.tail
-        self.size += 1
-            if self.patrol_type == "circular":
-                self.tail.next = self.head
-                self.head.prev = self.tail
-        self.size += 1
 
 
     def get_next_waypoint(self):

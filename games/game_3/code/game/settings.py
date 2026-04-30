@@ -8,7 +8,7 @@ TILESIZE = 64
 BTN_W = 400
 BTN_H = 70
 
-GAME_NAME = "YOUR GAME NAME HERE"
+GAME_NAME = "Forgotten"
 
 # Network settings
 DEFAULT_SERVER = 'localhost'

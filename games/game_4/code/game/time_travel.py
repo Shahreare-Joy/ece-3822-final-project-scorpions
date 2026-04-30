@@ -36,24 +36,20 @@ class TimeTravel:
         """Initialize history and future stacks."""
         self.max_history = max_history
         self.sample_rate = max(1, sample_rate)
-        self.history = Stack()
-        self.future = Stack()
+        self.history = Stack(capacity=max_history)
+        self.future = Stack(capacity=max_history)
         self._sample_counter = 0
 
-    def _trim_history(self):
-        """Keep only the newest max_history states."""
-        if self.history.size() <= self.max_history:
-            return
-
-        temp = []
-        while not self.history.is_empty():
-            temp.append(self.history.pop())
-
-        if len(temp) > self.max_history:
-            temp = temp[:self.max_history]
-
-        while temp:
-            self.history.push(temp.pop())
+    def _push_bounded(self, stack, state):
+        """Push into a fixed custom stack, dropping oldest state if full."""
+        if stack.is_full():
+            stack.pop_oldest()
+        try:
+            stack.push(state)
+        except OverflowError:
+            # Final guard: gameplay should never crash if history storage fills.
+            stack.pop_oldest()
+            stack.push(state)
 
     def record_state(self, player_x, player_y):
         """Record a new state every sample_rate calls."""
@@ -69,9 +65,8 @@ class TimeTravel:
             if latest.player_x == player_x and latest.player_y == player_y:
                 return
 
-        self.history.push(new_state)
+        self._push_bounded(self.history, new_state)
         self.future.clear()
-        self._trim_history()
 
     def can_rewind(self):
         """Return True if at least one earlier state exists."""
@@ -87,7 +82,7 @@ class TimeTravel:
             return None
 
         current = self.history.pop()
-        self.future.push(current)
+        self._push_bounded(self.future, current)
         return self.history.peek()
 
     def replay(self):
@@ -96,7 +91,7 @@ class TimeTravel:
             return None
 
         state = self.future.pop()
-        self.history.push(state)
+        self._push_bounded(self.history, state)
         return state
 
     def get_history_size(self):
