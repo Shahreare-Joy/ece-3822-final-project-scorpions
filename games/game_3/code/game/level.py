@@ -55,6 +55,9 @@ class Level:
         # Inventory UI
         self.inventory_ui = InventoryUI(self.player.inventory)
         self.inventory_ui.character = self.player   # equip-button needs this
+        self.game_over = False
+        self.game_over_font = pygame.font.Font(None, 96)
+        self.game_over_small_font = pygame.font.Font(None, 32)
  
         # Add starting items for testing
         self.add_starting_items()
@@ -149,6 +152,10 @@ class Level:
                 for local_id, surf in tiles.items():
                     global_id = firstgid + local_id
                     combined[global_id] = surf
+                    # The provided CSV exports use zero-based gids, while TMX
+                    # stores one-based gids. Supporting both keeps old and new
+                    # maps visible.
+                    combined.setdefault(global_id - 1, surf)
  
                 print(f"[Map] Tileset '{os.path.basename(img_path)}': "
                       f"{len(tiles)} tiles, firstgid={firstgid}")
@@ -225,7 +232,7 @@ class Level:
         # All layers share the same combined tileset dict so any tile ID works.
         LAYERS = [
             ('map/map_FloorBlocks.csv', 'boundary',
-             [self.visible_sprites, self.obstacle_sprites]),
+             [self.obstacle_sprites]),
             ('map/map_Grass.csv',       'grass',
              [self.visible_sprites]),
             ('map/map_Objects.csv',     'object',
@@ -412,6 +419,22 @@ class Level:
     def damage_player(self, amount):
         """Called by enemies when they land an attack."""
         self.player.take_damage(amount)
+        if self.player.hp <= 0:
+            self.game_over = True
+
+    def draw_game_over(self):
+        """Draw a simple game-over overlay when the player has no health."""
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.display_surface.blit(overlay, (0, 0))
+
+        title = self.game_over_font.render("GAME OVER", True, (230, 40, 40))
+        title_rect = title.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 35))
+        self.display_surface.blit(title, title_rect)
+
+        hint = self.game_over_small_font.render("Press ESC to quit", True, (255, 255, 255))
+        hint_rect = hint.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 35))
+        self.display_surface.blit(hint, hint_rect)
  
     # ------------------------------------------------------------------
  
@@ -663,6 +686,14 @@ class Level:
     def run(self, events):
         """Main update loop"""
         self.handle_events(events)
+        if self.game_over or self.player.hp <= 0:
+            self.game_over = True
+            self.visible_sprites.custom_draw(self.player)
+            self.draw_names()
+            self.draw_status()
+            self.draw_game_over()
+            return
+
         self.handle_time_travel_input(events)
         self.handle_enemy_debug_input(events)
  
@@ -763,7 +794,14 @@ class YSortCameraGroup(pygame.sprite.Group):
         self.offset.x = player.rect.centerx - self.half_width
         self.offset.y = player.rect.centery - self.half_height
  
-        for sprite in sorted(self.sprites(), key=lambda sprite: sprite.rect.centery):
+        ground_sprites = [sprite for sprite in self.sprites() if getattr(sprite, 'sprite_type', None) == 'grass']
+        y_sorted_sprites = [sprite for sprite in self.sprites() if getattr(sprite, 'sprite_type', None) != 'grass']
+
+        for sprite in ground_sprites:
+            offset_pos = sprite.rect.topleft - self.offset
+            self.display_surface.blit(sprite.image, offset_pos)
+
+        for sprite in sorted(y_sorted_sprites, key=lambda sprite: sprite.rect.centery):
             offset_pos = sprite.rect.topleft - self.offset
             self.display_surface.blit(sprite.image, offset_pos)
  

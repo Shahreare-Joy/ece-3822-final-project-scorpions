@@ -35,9 +35,9 @@ class Tile(pygame.sprite.Sprite):
         self.sprite_type = sprite_type
         self.image = surface
 
-        # Objects are tall (2 tiles) — offset them upward so their base
-        # sits on the correct tile.
-        if sprite_type == 'object':
+        # Tall objects sit one tile above their map anchor. Single-tile city
+        # props keep their normal top-left position.
+        if sprite_type == 'object' and self.image.get_height() > TILESIZE:
             self.rect = self.image.get_rect(topleft=(pos[0], pos[1] - TILESIZE))
         else:
             self.rect = self.image.get_rect(topleft=pos)
