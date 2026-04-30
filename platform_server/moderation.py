@@ -66,7 +66,7 @@ class ChatModerationService:
         self._blocked_words = ChainedHashTable()  # TODO (DONE): trie/hash table of banned terms.
 
         # initialize default blocked words
-        for word in ("spamword", "badword"):
+        for word in ("spamword", "badword", "bitch", "fuck", "shit", "asshole"):
             self._blocked_words.put(word, True)
 
     def validate_message(self, session_id: str, player_id: str, text: str) -> ModerationResult:
@@ -213,7 +213,7 @@ class ChatModerationService:
             bare = re.sub(r"[^A-Za-z0-9_]", "", token).lower()
 
             # replace blocked word with asterisks
-            words.append("*" * len(token) if self._blocked_words.contains(bare) else token)
+            words.append("****" if self._blocked_words.contains(bare) else token)
 
         return " ".join(words)
 

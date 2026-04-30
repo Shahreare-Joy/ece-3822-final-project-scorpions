@@ -152,6 +152,8 @@ class PlatformServer:
         """
 
         action = str(request.get("type") or request.get("action") or "").strip().lower()
+        if action:
+            print(f"[PLATFORM] request={action}")
         if action in {"health", "ping"}:
             return {"ok": True, "type": "health", "message": "Python platform server is online."}
         if action == "login":
@@ -189,6 +191,7 @@ class PlatformServer:
                 str(request.get("sender", "")),
                 str(request.get("text", "")),
             )
+            print(f"[CHAT] session={request.get('session_id', '')} sender={request.get('sender', '')} stored={ok}")
             return {"ok": ok, "message": "Message stored." if ok else "Message rejected by chat validation/moderation."}
         if action == "chat_recent":
             session_id = str(request.get("session_id", ""))
@@ -211,6 +214,12 @@ class PlatformServer:
             if not isinstance(payload, dict):
                 return {"ok": False, "message": "Result payload must be an object."}
             report = self.session_results.process_result(SessionResult.from_payload(payload))
+            print(
+                "[RESULT] "
+                f"player={payload.get('player_id') or payload.get('username')} "
+                f"game={payload.get('game_id')} score={payload.get('score')} "
+                f"accepted={report.accepted}"
+            )
             return {"ok": report.accepted, "message": report.message, "errors": report.validation_errors}
         return {"ok": False, "message": f"Unknown platform request: {action or '<empty>'}."}
 

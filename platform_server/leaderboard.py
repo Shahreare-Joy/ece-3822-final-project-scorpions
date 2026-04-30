@@ -18,6 +18,9 @@ from datastructures.hash_table import ChainedHashTable
 from datastructures.heap import MaxHeap
 
 
+NEW_TEAM_GAME_IDS = {"game_1", "game_2", "game_3", "game_4", "scorpions-arena", "sky-raiders", "turbo-sprint", "crystal-run"}
+
+
 @dataclass
 class ScoreRecord:
     # game this score belongs to
@@ -181,9 +184,12 @@ class LeaderboardService:
 
         for row in sessions:
             try:
+                game_id = str(row["game_id"])
+                if game_id in NEW_TEAM_GAME_IDS:
+                    continue
                 # submit score from session row
                 if self.submit_score(
-                    str(row["game_id"]),
+                    game_id,
                     str(row.get("username") or row.get("player_id")),
                     int(row["score"]),
                     str(row.get("started_at", ""))

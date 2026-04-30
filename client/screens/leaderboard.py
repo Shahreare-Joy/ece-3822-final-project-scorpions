@@ -34,9 +34,20 @@ class LeaderboardScreen(BaseScreen):
         draw_text(self.app.screen, f"{game.title if game else 'Game'} Top Scores", self.app.fonts.subheading, Palette.TEXT, panel.x + 18, panel.y + 16)
         if game:
             # TODO (DONE)(LEADERBOARD): Ranking/tie-breaking belongs in LeaderboardService.
-            for index, entry in enumerate(self.app.backend.get_leaderboard(game.game_id, 10)):
-                row = pygame.Rect(panel.x + 16, panel.y + 60 + index * 36, panel.width - 32, 30)
-                self.draw_list_row(row, f"#{entry.rank} {entry.display_name}", f"{entry.wins} wins", f"{entry.score:,} pts")
+            leaders = self.app.backend.get_leaderboard(game.game_id, 10)
+            if leaders:
+                for index, entry in enumerate(leaders):
+                    row = pygame.Rect(panel.x + 16, panel.y + 60 + index * 36, panel.width - 32, 30)
+                    self.draw_list_row(row, f"#{entry.rank} {entry.display_name}", f"{entry.wins} wins", f"{entry.score:,} pts")
+            else:
+                draw_wrapped(
+                    self.app.screen,
+                    "No scores yet. Play this game to set the first score.",
+                    self.app.fonts.body,
+                    Palette.MUTED,
+                    pygame.Rect(panel.x + 18, panel.y + 70, panel.width - 36, 80),
+                    max_lines=3,
+                )
             draw_text(self.app.screen, "Data Structure Hook", self.app.fonts.body, Palette.TEXT, detail.x + 18, detail.y + 18)
             draw_wrapped(self.app.screen, "The leaderboard service owns ranking, top scores, range lookups, and sorting hooks so screens stay focused on display.", self.app.fonts.small, Palette.MUTED, pygame.Rect(detail.x + 18, detail.y + 58, detail.width - 36, 120), max_lines=5)
             draw_text(self.app.screen, "Selected Game", self.app.fonts.body, Palette.TEXT, detail.x + 18, detail.y + 210)

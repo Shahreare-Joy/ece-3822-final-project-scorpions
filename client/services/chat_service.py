@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import os
 import re
+import socket
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +14,50 @@ from client.models import ChatMessage
 from .session_chat import SessionChat
 
 
-BLOCKED_CHAT_WORDS = {"badword", "spamword"}
+BLOCKED_CHAT_WORDS = {"badword", "spamword", "bitch", "fuck", "shit", "asshole"}
+
+
+@dataclass
+class _ChatRequestResult:
+    ok: bool
+    message: str
+    response: Any = None
+
+
+class _PlatformChatConnection:
+    """Tiny JSON socket client kept independent of the full arcade backend."""
+
+    def __init__(self, host: str, port: int, timeout: float = 0.5) -> None:
+        self.host = host
+        self.port = int(port)
+        self.timeout = timeout
+
+    @property
+    def endpoint(self) -> str:
+        return f"{self.host}:{self.port}"
+
+    def send_request(self, request: dict[str, Any]) -> _ChatRequestResult:
+        try:
+            with socket.create_connection((self.host, self.port), timeout=self.timeout) as sock:
+                sock.settimeout(self.timeout)
+                sock.sendall((json.dumps(request) + "\n").encode("utf-8"))
+                chunks: list[bytes] = []
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    if b"\n" in chunk:
+                        break
+        except OSError as exc:
+            return _ChatRequestResult(False, f"Could not reach platform chat server at {self.endpoint}: {exc}")
+        raw = b"".join(chunks).strip()
+        if not raw:
+            return _ChatRequestResult(False, "Platform chat server returned no response.")
+        try:
+            return _ChatRequestResult(True, "Platform chat response received.", json.loads(raw.decode("utf-8")))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            return _ChatRequestResult(False, f"Invalid platform chat response: {exc}")
 
 
 class ChatService:
@@ -38,6 +85,14 @@ class ChatService:
         self.storage_dir = Path(storage_dir) if storage_dir else None
         if self.storage_dir is not None:
             self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.remote_connection = self._build_remote_connection()
+        self._remote_cache: dict[str, tuple[float, list[ChatMessage]]] = {}
+        self.remote_poll_interval_seconds = 0.75
+        self.polling_active = True
+        self.remote_available = self.remote_connection is not None
+        self.last_status = "Platform chat ready." if self.remote_available else "Local session chat ready."
+        if self.remote_connection is not None:
+            print(f"[CHAT] Platform chat sync enabled at {self.remote_connection.endpoint}.")
         for message in messages:
             self.get_or_create_session_chat(message.session_id).add_message(message)
 
@@ -57,10 +112,34 @@ class ChatService:
         message = ChatMessage(channel, sender.strip() or "Guest", cleaned_text, when, session_id=session_id.strip() or "global")
         self.get_or_create_session_chat(message.session_id).add_message(message)
         self._save_session_to_disk(message.session_id)
-        # TODO(CHAT/C++): Broadcast this message to all players in the session.
+        if self.remote_connection is not None:
+            result = self.remote_connection.send_request(
+                {
+                    "type": "chat_send",
+                    "session_id": message.session_id,
+                    "sender": message.sender,
+                    "text": message.text,
+                }
+            )
+            if result.ok and isinstance(result.response, dict) and result.response.get("ok"):
+                print(f"[CHAT] Sent platform chat message for session {message.session_id}.")
+                self.remote_available = True
+                self.last_status = "Platform chat synced."
+                self._remote_cache.pop(message.session_id, None)
+            else:
+                detail = result.message
+                if isinstance(result.response, dict):
+                    detail = str(result.response.get("message") or detail)
+                print(f"[CHAT] Platform chat send failed; local overlay kept message. {detail}")
+                self.remote_available = False
+                self.last_status = "Chat server unavailable - local fallback."
         return message
 
     def get_recent_messages(self, session_id: str, limit: int | None = None) -> list[ChatMessage]:
+        if self.remote_connection is not None and self.polling_active:
+            remote_messages = self._fetch_remote_messages(session_id.strip() or "global", limit or self.capacity)
+            if remote_messages is not None:
+                return remote_messages
         # Reload from disk before rendering so another launched game process can
         # add a message and this process will show it on the next draw.
         if self.storage_dir is not None:
@@ -88,6 +167,69 @@ class ChatService:
                     path.unlink(missing_ok=True)
                 except OSError:
                     pass
+
+    def stop_polling(self) -> None:
+        """Disable remote chat polling for hidden/destroyed overlays."""
+
+        self.polling_active = False
+        self._remote_cache.clear()
+        self.last_status = "Chat polling stopped."
+
+    def resume_polling(self) -> None:
+        """Re-enable remote chat polling when the overlay becomes visible."""
+
+        self.polling_active = True
+        self.last_status = "Platform chat ready." if self.remote_connection is not None else "Local session chat ready."
+
+    @property
+    def remote_enabled(self) -> bool:
+        return self.remote_connection is not None
+
+    def _build_remote_connection(self) -> _PlatformChatConnection | None:
+        if os.environ.get("SCORPIONS_PLATFORM_CHAT") != "1":
+            return None
+        host = (os.environ.get("SCORPIONS_PLATFORM_HOST") or "").strip()
+        port_text = (os.environ.get("SCORPIONS_PLATFORM_PORT") or "").strip()
+        if not host or not port_text:
+            return None
+        try:
+            port = int(port_text)
+        except ValueError:
+            return None
+        return _PlatformChatConnection(host, port, timeout=0.5)
+
+    def _fetch_remote_messages(self, session_id: str, limit: int) -> list[ChatMessage] | None:
+        if self.remote_connection is None:
+            return None
+        cached = self._remote_cache.get(session_id)
+        now = time.monotonic()
+        if cached is not None and now - cached[0] < self.remote_poll_interval_seconds:
+            return cached[1][-limit:]
+        result = self.remote_connection.send_request(
+            {
+                "type": "chat_recent",
+                "session_id": session_id,
+                "limit": max(1, min(int(limit), self.capacity)),
+            }
+        )
+        if not result.ok or not isinstance(result.response, dict) or not result.response.get("ok"):
+            print(f"[CHAT] Platform chat poll failed; using local cache. {result.message}")
+            self.remote_available = False
+            self.last_status = "Chat server unavailable - local fallback."
+            return None
+        self.remote_available = True
+        self.last_status = "Platform chat synced."
+        rows = result.response.get("messages", [])
+        if not isinstance(rows, list):
+            return []
+        messages = [self._message_from_record(row, session_id) for row in rows if isinstance(row, dict)]
+        chat = SessionChat(session_id, self.capacity)
+        for message in messages:
+            chat.add_message(message)
+        self.session_chats[session_id] = chat
+        recent = chat.recent_messages(limit)
+        self._remote_cache[session_id] = (now, recent)
+        return recent
 
     def _session_path(self, session_id: str) -> Path | None:
         if self.storage_dir is None:
@@ -139,7 +281,7 @@ class ChatService:
             str(record.get("channel", "session")),
             str(record.get("sender", "Guest")),
             self._filter_blocked_words(self._clean_text(str(record.get("text", ""))))[:240],
-            str(record.get("timestamp", "")),
+            str(record.get("timestamp") or record.get("sent_at") or ""),
             session_id=str(record.get("session_id") or fallback_session_id),
         )
 
@@ -156,6 +298,6 @@ class ChatService:
 
         def replace(match: re.Match[str]) -> str:
             token = match.group(0)
-            return "*" * len(token) if token.lower() in BLOCKED_CHAT_WORDS else token
+            return "****" if token.lower() in BLOCKED_CHAT_WORDS else token
 
         return re.sub(r"\b[A-Za-z0-9_]+\b", replace, text)

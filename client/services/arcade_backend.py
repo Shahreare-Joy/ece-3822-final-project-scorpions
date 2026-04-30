@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,8 @@ TEAM_GAME_ID_ALIASES = {
     "game_5": "snake-test",
 }
 
+NEW_TEAM_GAME_IDS = {"scorpions-arena", "sky-raiders", "turbo-sprint", "crystal-run"}
+
 GENRE_COLORS = {
     "Action": (190, 82, 104),
     "Adventure": (78, 156, 208),
@@ -55,6 +59,11 @@ class MockArcadeBackend:
     def __init__(self, config: RuntimeConfig | None = None) -> None:
         self.runtime_config = config or RuntimeConfig.local()
         self.local_fallback_active = False
+        if self.runtime_config.is_server_mode:
+            os.environ["SCORPIONS_PLATFORM_HOST"] = self.runtime_config.server_host
+            os.environ["SCORPIONS_PLATFORM_PORT"] = str(self.runtime_config.platform_port)
+            os.environ["SCORPIONS_PLATFORM_SERIALIZER"] = self.runtime_config.serializer
+            os.environ["SCORPIONS_PLATFORM_CHAT"] = "1"
         platform_connection = self.runtime_config.platform_connection() if self.runtime_config.is_server_mode else None
         gameplay_connection = self.runtime_config.gameplay_connection() if self.runtime_config.is_server_mode else None
         self.server_connection = (
@@ -89,7 +98,7 @@ class MockArcadeBackend:
         self.games = {game.game_id: game for game in MOCK_GAMES}
         self.home_sessions = list(MOCK_SESSIONS)
         self.sessions = list(self.home_sessions)
-        self.leaderboard_entries = list(MOCK_LEADERBOARD)
+        self.leaderboard_entries = [entry for entry in MOCK_LEADERBOARD if entry.game_id not in NEW_TEAM_GAME_IDS]
         self.chat_messages = list(MOCK_CHAT)
         self.stats = MOCK_STATS
         self.chat_storage_dir = Path(__file__).resolve().parents[2] / "data" / "runtime_chat"
@@ -112,6 +121,8 @@ class MockArcadeBackend:
         self._preload_cache: dict[str, Any] = {}
         self._preload_error = ""
         self._preload_generation = 0
+        self._chat_preview_cache: dict[tuple[str, int], tuple[float, list[ChatMessage]]] = {}
+        self.chat_preview_interval_seconds = 15.0
 
     @property
     def run_mode_label(self) -> str:
@@ -292,9 +303,35 @@ class MockArcadeBackend:
         return self.catalog_service.search_games(query, limit)
 
     def get_leaderboard(self, game_id: str, limit: int = 8) -> list[LeaderboardEntry]:
+        if self.runtime_config.is_server_mode and not self.local_fallback_active:
+            response = self._platform_request({"type": "leaderboard", "game_id": game_id, "limit": limit})
+            if response is not None and response.get("ok") and isinstance(response.get("leaders"), list):
+                leaders = [
+                    self._leaderboard_entry_from_server_payload(row, index + 1)
+                    for index, row in enumerate(response["leaders"])
+                    if isinstance(row, dict)
+                ]
+                return leaders
         return self.leaderboard_service.get_leaderboard(game_id, limit)
 
     def get_sessions(self, username: str | None = None, game_id: str | None = None, limit: int = 8) -> list[GameSession]:
+        if self.runtime_config.is_server_mode and not self.local_fallback_active:
+            response = self._platform_request(
+                {
+                    "type": "history",
+                    "username": username or "",
+                    "game_id": game_id or "",
+                    "limit": limit,
+                }
+            )
+            if response is not None and response.get("ok") and isinstance(response.get("sessions"), list):
+                sessions = [
+                    self._session_from_server_payload(row)
+                    for row in response["sessions"]
+                    if isinstance(row, dict)
+                ]
+                if sessions:
+                    return sessions
         if username and game_id is None:
             cached_sessions = self.get_cached_player_sessions(username, limit)
             if cached_sessions is not None:
@@ -311,10 +348,22 @@ class MockArcadeBackend:
         return self.search_service.search_players(query, limit)
 
     def get_chat_preview(self, session_id: str = "global", limit: int = 3) -> list[ChatMessage]:
-        return self.chat_service.get_chat_preview(session_id, limit)
+        safe_session_id = (session_id or "").strip()
+        if not safe_session_id:
+            return []
+        key = (safe_session_id, int(limit))
+        now = time.monotonic()
+        cached = self._chat_preview_cache.get(key)
+        if cached is not None and now - cached[0] < self.chat_preview_interval_seconds:
+            return list(cached[1])
+        messages = self.chat_service.get_chat_preview(safe_session_id, limit)
+        self._chat_preview_cache[key] = (now, list(messages))
+        return messages
 
     def add_chat_message(self, session_id: str, sender: str, text: str) -> ChatMessage:
-        return self.chat_service.add_message(session_id, sender, text)
+        message = self.chat_service.add_message(session_id, sender, text)
+        self._invalidate_chat_preview_cache(message.session_id)
+        return message
 
     def launch_game(self, player: Player | None, game: Game) -> str:
         if not game.playable:
@@ -324,21 +373,81 @@ class MockArcadeBackend:
             # correct top-level games/game_N/code/game/main.py file.
             return f"{game.title} is not connected yet. Its arcade page is ready, and the team can connect the game folder when it is available."
         session_id = self.session_id_for_game(game)
+        self._notify_platform_session_start(player, game, session_id)
         try:
             result = self.game_launch_service.launch(player, game, session_id)
             if result.ok:
+                remote_result_message = self._submit_result_to_platform(result.session_result_payload)
                 result_report = self.session_result_service.handle_launch_result(player, game, result.session_result_payload)
                 self._record_completed_session(player, game, result.session_id, result.session_result_payload)
                 if result_report.processed:
-                    return f"{result.message} Result pipeline: {result_report.message}"
+                    suffix = f" Result pipeline: {result_report.message}"
+                    if remote_result_message:
+                        suffix += f" Platform sync: {remote_result_message}"
+                    return f"{result.message}{suffix}"
+                if remote_result_message:
+                    return f"{result.message} {result_report.message} Platform sync: {remote_result_message}"
                 return f"{result.message} {result_report.message}"
             player_name = player.display_name if player else "Guest"
             return f"{player_name}, {result.message}"
         finally:
+            self._notify_platform_session_end(session_id)
             # The local game subprocess has ended, so release the session chat
             # buffer/file used by the arcade bridge. A future C++ relay should
             # perform the matching network unsubscribe here.
             self.chat_service.close_session(session_id)
+            self._invalidate_chat_preview_cache(session_id)
+
+    def _invalidate_chat_preview_cache(self, session_id: str | None = None) -> None:
+        if not session_id:
+            self._chat_preview_cache.clear()
+            return
+        safe_session_id = session_id.strip()
+        for key in list(self._chat_preview_cache):
+            if key[0] == safe_session_id:
+                self._chat_preview_cache.pop(key, None)
+
+    def _platform_request(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        if not self.runtime_config.is_server_mode or self.server_connection is None or self.local_fallback_active:
+            return None
+        result = self.server_connection.send_request(request)
+        if not result.ok:
+            print(f"[PLATFORM] Request {request.get('type')} failed: {result.message}")
+            return None
+        if isinstance(result.response, dict):
+            print(f"[PLATFORM] Request {request.get('type')} -> {result.response.get('message', 'ok')}")
+            return result.response
+        print(f"[PLATFORM] Request {request.get('type')} -> {result.response}")
+        return None
+
+    def _notify_platform_session_start(self, player: Player | None, game: Game, session_id: str) -> None:
+        response = self._platform_request(
+            {
+                "type": "session_start",
+                "session_id": session_id,
+                "player_id": player.username if player else "guest",
+                "game_id": game.game_id,
+            }
+        )
+        if response is not None and response.get("ok"):
+            print(f"[PLATFORM] Session started: {session_id}")
+
+    def _notify_platform_session_end(self, session_id: str) -> None:
+        response = self._platform_request({"type": "session_end", "session_id": session_id})
+        if response is not None:
+            print(f"[PLATFORM] Session end cleanup for {session_id}: {response.get('message', response.get('ok'))}")
+
+    def _submit_result_to_platform(self, payload: dict[str, Any] | None) -> str:
+        if payload is None:
+            return ""
+        response = self._platform_request({"type": "submit_result", "payload": payload})
+        if response is None:
+            return "not available"
+        if response.get("ok"):
+            print(f"[PLATFORM] Score submitted: player={payload.get('player_id')} game={payload.get('game_id')} score={payload.get('score')}")
+            return str(response.get("message") or "score accepted")
+        print(f"[PLATFORM] Score rejected: {response.get('message')} {response.get('errors', [])}")
+        return str(response.get("message") or "score rejected")
 
     def _dedupe_home_sections(self, sections: list[tuple[str, list[Game]]]) -> list[tuple[str, list[Game]]]:
         """Drop empty shelves and avoid repeating the exact same game set."""
@@ -772,4 +881,30 @@ class MockArcadeBackend:
             status=str(record.get("status") or "Online"),
             bio=str(record.get("bio") or "Remote platform account."),
             avatar_id=str(record.get("avatar_id") or record.get("avatar") or ""),
+        )
+
+    @staticmethod
+    def _leaderboard_entry_from_server_payload(payload: dict[str, Any], rank: int) -> LeaderboardEntry:
+        username = str(payload.get("username") or payload.get("player_id") or "guest")
+        return LeaderboardEntry(
+            game_id=str(payload.get("game_id") or ""),
+            username=username,
+            display_name=str(payload.get("display_name") or username),
+            score=int(payload.get("score", 0) or 0),
+            wins=int(payload.get("wins", 0) or 0),
+            rank=rank,
+        )
+
+    @staticmethod
+    def _session_from_server_payload(payload: dict[str, Any]) -> GameSession:
+        duration_seconds = int(payload.get("duration_seconds", payload.get("duration", 0)) or 0)
+        return GameSession(
+            session_id=str(payload.get("session_id") or ""),
+            game_id=str(payload.get("game_id") or ""),
+            username=str(payload.get("username") or payload.get("player_id") or "guest"),
+            result=str(payload.get("outcome") or payload.get("result") or "Played"),
+            score=int(payload.get("score", 0) or 0),
+            duration_minutes=max(1, duration_seconds // 60) if duration_seconds else int(payload.get("duration_minutes", 1) or 1),
+            played_at=str(payload.get("played_at") or payload.get("started_at") or payload.get("timestamp") or ""),
+            status=str(payload.get("status") or "Complete"),
         )

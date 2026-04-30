@@ -7,6 +7,9 @@ from datastructures.hash_table import ChainedHashTable
 from datastructures.heap import MaxHeap
 
 
+TEAM_GAME_IDS = {"scorpions-arena", "sky-raiders", "turbo-sprint", "crystal-run"}
+
+
 class LeaderboardService:
     """Leaderboard service backed by custom indexes."""
 
@@ -55,6 +58,8 @@ class LeaderboardService:
                 LeaderboardEntry(entry.game_id, entry.username, entry.display_name, entry.score, entry.wins, rank)
                 for rank, entry in enumerate(rows, start=1)
             ]
+        if game_id in TEAM_GAME_IDS:
+            return []
         generated: list[LeaderboardEntry] = []
         for index, player in enumerate(list(self.players.values())[:limit], start=1):
             generated.append(LeaderboardEntry(game_id, player.username, player.display_name, max(1000, 50000 - index * 3175 - player.level * 42), max(1, player.total_wins // 2), index))

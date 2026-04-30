@@ -10,7 +10,7 @@ ALLOWED_SERVER_PORTS = (50068, 50069, 50075, 50082)
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 50068
 ALLOWED_SERIALIZERS = ("text", "json", "binary")
-DEFAULT_SERIALIZER = "text"
+DEFAULT_SERIALIZER = "json"
 
 
 def is_allowed_port(port: int) -> bool:
@@ -70,7 +70,7 @@ def _env_port(role: str) -> int:
 
 
 def _env_serializer() -> str:
-    """Read the gameplay message serializer from env, defaulting to text."""
+    """Read the gameplay message serializer from env, defaulting to JSON."""
 
     return normalize_serializer(os.environ.get("SCORPIONS_GAME_SERIALIZER") or os.environ.get("SCORPIONS_SERIALIZER"))
 

@@ -45,13 +45,16 @@ class ServerConnection:
         if self.connected and self.sock is not None:
             return True
         try:
+            print(f"[SERVER] Connecting to {self.name} at {self.endpoint}...")
             self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
             self.sock.settimeout(self.timeout)
         except OSError:
+            print(f"[SERVER] Connection failed: {self.name} at {self.endpoint}")
             self.sock = None
             self.connected = False
             return False
         self.connected = True
+        print(f"[SERVER] Connected: {self.name} at {self.endpoint}")
         return True
 
     def availability(self) -> ServerAvailability:
@@ -78,6 +81,8 @@ class ServerConnection:
             payload = self._encode(request)
             assert self.sock is not None
             self.sock.sendall(payload)
+            if isinstance(request, dict):
+                print(f"[SERVER] Sent {request.get('type', '<unknown>')} request to {self.endpoint}.")
             response = self.receive_response()
         except OSError as exc:
             self.close()
