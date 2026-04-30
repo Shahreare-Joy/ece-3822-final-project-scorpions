@@ -171,7 +171,7 @@ def parse_runtime_config(argv: list[str] | None = None) -> RuntimeConfig:
     parser.add_argument("--server", help="Server hostname or IP for ECE/server mode.")
     parser.add_argument("--port", type=int, default=50068, help="Python platform server port.")
     parser.add_argument("--game-port", type=int, help="Optional C++ gameplay server port. Defaults to --port.")
-    parser.add_argument("--serializer", choices=("text", "json"), default="text", help="Network message format for server mode.")
+    parser.add_argument("--serializer", choices=("text", "json"), default="json", help="Network message format for server mode.")
     args = parser.parse_args(argv)
     if not args.server:
         return RuntimeConfig.local()

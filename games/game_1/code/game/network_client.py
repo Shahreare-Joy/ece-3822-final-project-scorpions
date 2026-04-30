@@ -16,6 +16,8 @@ import socket
 import threading
 import json
 import struct
+import time
+from threading import Event
 from queue import Queue
 
 try:
@@ -44,32 +46,47 @@ class NetworkClient:
         self.sock = None
         self.connected = False
         self.my_player_id = None
+        self.disconnect_reason = ""
         
         self.update_queue = Queue()
         self.receiver_thread = None
         self.running = False
+        self.handshake_received = Event()
+        self.send_interval_seconds = 0.10
+        self.last_send_at = 0.0
+        self._send_count = 0
+        self._receive_count = 0
         
-        print(f"Network client using {self.serializer.upper()} serialization")
+        print(f"[NET] Network client using {self.serializer.upper()} serialization")
         
-    def connect(self):
+    def connect(self, handshake_timeout=2.0):
         """Connect to game server"""
         try:
-            print(f"Connecting to {self.server_host}:{self.server_port}...")
+            print(f"[NET] Connecting to gameplay server at {self.server_host}:{self.server_port}...")
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.settimeout(1.0)
             self.sock.connect((self.server_host, self.server_port))
             self.sock.settimeout(0.5)
             self.connected = True
             self.running = True
+            self.disconnect_reason = ""
+            self.handshake_received.clear()
             
             self.receiver_thread = threading.Thread(target=self._receive_loop, daemon=True)
             self.receiver_thread.start()
+
+            if not self.handshake_received.wait(handshake_timeout):
+                self.disconnect_reason = f"Timed out waiting for CONNECTED handshake after {handshake_timeout:.1f}s"
+                print(f"[NET] {self.disconnect_reason}")
+                self.disconnect(self.disconnect_reason)
+                return False
             
-            print(f"Connected to server using {self.serializer.upper()} serialization!")
+            print(f"[NET] Connection success: accepted CONNECTED handshake as player {self.my_player_id}.")
             return True
             
         except Exception as e:
-            print(f"Failed to connect: {e}")
+            self.disconnect_reason = str(e)
+            print(f"[NET] Failed to connect: {e}")
             self.connected = False
             return False
     
@@ -81,7 +98,8 @@ class NetworkClient:
             try:
                 data = self.sock.recv(4096).decode('utf-8', errors='ignore')
                 if not data:
-                    print("Server disconnected")
+                    self.disconnect_reason = "Server closed the socket"
+                    print(f"[NET] Disconnected: {self.disconnect_reason}")
                     self.connected = False
                     break
                 
@@ -95,37 +113,40 @@ class NetworkClient:
                 continue
             except OSError as e:
                 if self.running:
-                    print(f"Receive error: {e}")
+                    self.disconnect_reason = str(e)
+                    print(f"[NET] Receive error: {e}")
                 self.connected = False
                 break
     
     def _process_message(self, msg):
         """Process a message from server"""
+        msg = msg.strip()
+        if not msg:
+            return
+
         # First check message type (before any separator)
         if msg.startswith("CONNECTED|"):
             parts = msg.split('|')
             self.my_player_id = int(parts[1])
-            print(f"Assigned player ID: {self.my_player_id}")
+            self.handshake_received.set()
+            print(f"[NET] Received handshake: {msg}")
             
         elif msg.startswith("STATE||"):
             # Game state update
             # Format: STATE||<serialized_player1>||<serialized_player2>||...
             # Players are separated by || (double pipe) to avoid conflicts with serialization formats
             parts = msg.split('||')
-            print(f"[DEBUG] Received STATE message with {len(parts)-1} player entries")
+            self._receive_count += 1
+            if self._receive_count <= 5 or self._receive_count % 30 == 0:
+                print(f"[NET] Received STATE #{self._receive_count} with {len(parts)-1} player entries")
             players = {}
             
             for i in range(1, len(parts)):
                 if parts[i]:
-                    print(f"[DEBUG] Parsing player {i}: '{parts[i][:50]}...'")  # First 50 chars
                     player_data = self._deserialize_player(parts[i])
                     if player_data:
-                        print(f"[DEBUG] Parsed player: ID={player_data['id']}, Name={player_data['name']}")
                         players[player_data['id']] = player_data
-                    else:
-                        print(f"[DEBUG] Failed to parse player data")
             
-            print(f"[DEBUG] Total players parsed: {len(players)}")
             self.update_queue.put(players)
     
     def _deserialize_player(self, data):
@@ -224,11 +245,19 @@ class NetworkClient:
     def send_update(self, x, y, character_type="", status="down"):
         """Send our position, character type, and status to server (uses standard UPDATE format)"""
         if self.connected and self.my_player_id is not None:
+            now = time.monotonic()
+            if now - self.last_send_at < self.send_interval_seconds:
+                return
+            self.last_send_at = now
+
             msg = f"UPDATE|{self.my_player_id}|{x}|{y}|{self.player_name}|{character_type}|{status}\n"
             try:
                 self.sock.sendall(msg.encode('utf-8'))
-            except OSError:
-                self.disconnect()
+                self._send_count += 1
+                if self._send_count <= 5 or self._send_count % 30 == 0:
+                    print(f"[NET] Sent UPDATE #{self._send_count}: x={x}, y={y}, status={status}")
+            except OSError as exc:
+                self.disconnect(f"Send failed: {exc}")
     
     def get_updates(self):
         """Get most recent update from queue"""
@@ -240,8 +269,12 @@ class NetworkClient:
             return updates[-1]
         return None
     
-    def disconnect(self):
+    def disconnect(self, reason="Client requested disconnect"):
         """Disconnect from server and stop send/receive loops."""
+        if reason:
+            self.disconnect_reason = reason
+        if self.connected or self.running:
+            print(f"[NET] Disconnecting: {self.disconnect_reason or reason}")
         self.running = False
         self.connected = False
         if self.sock:

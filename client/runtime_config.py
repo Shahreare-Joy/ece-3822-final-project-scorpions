@@ -19,7 +19,7 @@ class RuntimeConfig:
     server_host: str = DEFAULT_SERVER_HOST
     platform_port: int = DEFAULT_SERVER_PORT
     gameplay_port: int = DEFAULT_SERVER_PORT
-    serializer: str = "text"
+    serializer: str = "json"
     allow_local_fallback: bool = True
 
     @property
@@ -31,7 +31,7 @@ class RuntimeConfig:
         return cls()
 
     @classmethod
-    def server(cls, host: str, port: int, serializer: str = "text", gameplay_port: int | None = None) -> "RuntimeConfig":
+    def server(cls, host: str, port: int, serializer: str = "json", gameplay_port: int | None = None) -> "RuntimeConfig":
         return cls(
             mode="server",
             server_host=(host or DEFAULT_SERVER_HOST).strip() or DEFAULT_SERVER_HOST,

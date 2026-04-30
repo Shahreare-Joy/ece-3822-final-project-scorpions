@@ -130,6 +130,10 @@ class GameLaunchService:
         env["SCORPIONS_SESSION_ID"] = request.session_id
         env["SCORPIONS_SERVER_HOST"] = self.connection.host
         env["SCORPIONS_SERVER_PORT"] = str(self.connection.port)
+        env["SCORPIONS_PLATFORM_HOST"] = os.environ.get("SCORPIONS_PLATFORM_HOST", "")
+        env["SCORPIONS_PLATFORM_PORT"] = os.environ.get("SCORPIONS_PLATFORM_PORT", "")
+        env["SCORPIONS_PLATFORM_SERIALIZER"] = os.environ.get("SCORPIONS_PLATFORM_SERIALIZER", "json")
+        env["SCORPIONS_PLATFORM_CHAT"] = os.environ.get("SCORPIONS_PLATFORM_CHAT", "0")
         env["SCORPIONS_GAME_HOST"] = self.connection.host
         env["SCORPIONS_GAME_PORT"] = str(self.connection.port)
         env["SCORPIONS_GAME_SERIALIZER"] = self.connection.serializer

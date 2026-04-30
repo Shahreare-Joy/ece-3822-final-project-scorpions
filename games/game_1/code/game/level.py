@@ -43,6 +43,23 @@ class FruitSprite(pygame.sprite.Sprite):
         pygame.draw.ellipse(self.image, (74, 171, 93), pygame.Rect(17, 4, 12, 7))
 
         self.rect = self.image.get_rect(center=pos)
+
+
+class HazardSprite(pygame.sprite.Sprite):
+    """Danger item that appears in the second half of the round."""
+
+    def __init__(self, pos, groups):
+        super().__init__(groups)
+        self.image = pygame.Surface((38, 38), pygame.SRCALPHA)
+        points = [(19, 2), (25, 13), (36, 19), (25, 25), (19, 36), (13, 25), (2, 19), (13, 13)]
+        pygame.draw.polygon(self.image, (122, 30, 156), points)
+        pygame.draw.polygon(self.image, (250, 72, 102), points, width=3)
+        pygame.draw.circle(self.image, (255, 229, 92), (19, 19), 6)
+        pygame.draw.line(self.image, (255, 245, 170), (19, 8), (19, 30), 2)
+        pygame.draw.line(self.image, (255, 245, 170), (8, 19), (30, 19), 2)
+        self.rect = self.image.get_rect(center=pos)
+
+
 class Level:
     def __init__(self, player_name, character_class, server_host='localhost', server_port=DEFAULT_PORT, serializer='text'):
         # Get the display surface
@@ -61,6 +78,7 @@ class Level:
         self.floor_sprites = pygame.sprite.Group()
         self.obstacle_sprites = pygame.sprite.Group()
         self.fruit_sprites = pygame.sprite.Group()
+        self.hazard_sprites = pygame.sprite.Group()
 
 
         # Store character class for player creation
@@ -72,15 +90,18 @@ class Level:
         # Network setup with serializer
         self.network = NetworkClient(player_name, server_host, normalize_server_port(server_port), serializer)
         self.connected = self.network.connect()
+        if self.connected:
+            self.connection_status = f"Connected - player {self.network.my_player_id} ({self.network.serializer.upper()})"
+        else:
+            self.connection_status = "Session-based fallback: gameplay local, chat/scores still work"
+            print(f"[NET] Real-time multiplayer unavailable. {self.network.disconnect_reason}")
+            print("[NET] Fallback limitation: this client will continue as a local session; score/history/leaderboard reporting is unchanged.")
 
         # Track other players
         self.other_players = {}  # player_id -> Character sprite
 
         # Font for displaying names
         self.font = pygame.font.Font(None, 24)
-
-        # Connection status
-        self.connection_status = "Connecting..."
 
         # Inventory UI
         self.inventory_ui = InventoryUI(self.player.inventory)
@@ -107,6 +128,9 @@ class Level:
         self.round_started_at = pygame.time.get_ticks()
         self.game_over = False
         self.game_over_reason = ""
+        self.hazards_active = False
+        self.hazard_hits = 0
+        self.last_hazard_hit_at = 0
         self.create_fruits()
 
         # Debug mode for showing enemy paths
@@ -357,6 +381,75 @@ class Level:
             FruitSprite((x, y), [self.visible_sprites, self.fruit_sprites], golden=is_golden)
             return
 
+    def activate_hazards(self):
+        """Spawn fair second-half hazards.
+
+        Rule: hazards only appear once half the timer is gone. Touching one
+        removes a little HP and score, then moves that hazard elsewhere. A
+        short cooldown prevents one bad step from draining all health at once.
+        """
+
+        if self.hazards_active:
+            return
+        self.hazards_active = True
+        for _ in range(HAZARD_SPAWN_COUNT):
+            self.spawn_hazard()
+
+    def spawn_hazard(self):
+        """Place one dangerous item away from walls, fruits, and the player."""
+
+        if not WORLD_MAP:
+            return
+
+        for _ in range(100):
+            row_index = random.randrange(len(WORLD_MAP))
+            col_index = random.randrange(len(WORLD_MAP[row_index]))
+            if WORLD_MAP[row_index][col_index] == 'x':
+                continue
+
+            x = col_index * TILESIZE + TILESIZE // 2
+            y = row_index * TILESIZE + TILESIZE // 2
+            test_rect = pygame.Rect(0, 0, 38, 38)
+            test_rect.center = (x, y)
+
+            if test_rect.colliderect(self.player.rect.inflate(96, 96)):
+                continue
+            if any(test_rect.colliderect(sprite.rect) for sprite in self.obstacle_sprites):
+                continue
+            if any(test_rect.colliderect(fruit.rect) for fruit in self.fruit_sprites):
+                continue
+            if any(test_rect.colliderect(hazard.rect) for hazard in self.hazard_sprites):
+                continue
+
+            HazardSprite((x, y), [self.visible_sprites, self.hazard_sprites])
+            return
+
+    def handle_hazards(self):
+        """Enable midpoint hazards and apply collision damage safely."""
+
+        if self.time_remaining() <= GAME_DURATION_SECONDS // 2:
+            self.activate_hazards()
+        if not self.hazards_active:
+            return
+
+        player_rect = getattr(self.player, "hitbox", self.player.rect)
+        touched = [hazard for hazard in self.hazard_sprites if hazard.rect.colliderect(player_rect)]
+        if not touched:
+            return
+
+        now = pygame.time.get_ticks()
+        if now - self.last_hazard_hit_at < HAZARD_HIT_COOLDOWN_MS:
+            return
+
+        self.last_hazard_hit_at = now
+        self.hazard_hits += 1
+        self.score = max(0, self.score - HAZARD_SCORE_PENALTY)
+        self.player.take_damage(HAZARD_DAMAGE)
+
+        for hazard in touched:
+            hazard.kill()
+            self.spawn_hazard()
+
     def collect_fruits(self):
         """Increase score when the player touches fruit."""
 
@@ -411,6 +504,7 @@ class Level:
                 "fruits_collected": self.fruits_collected,
                 "golden_fruits_collected": self.golden_fruits_collected,
                 "health_remaining": self.player.hp,
+                "hazard_hits": self.hazard_hits,
                 "reason": self.game_over_reason,
             },
         }
@@ -446,8 +540,10 @@ class Level:
 
     def update_network(self):
         """Handle network synchronization"""
+        self.connected = self.network.connected
         if not self.connected:
-            self.connection_status = "Disconnected"
+            reason = self.network.disconnect_reason or "gameplay server unavailable"
+            self.connection_status = f"Session fallback: {reason}"
             return
 
         # Send our position, character type, and status to server
@@ -471,8 +567,6 @@ class Level:
 
                 if player_id not in self.other_players:
                     character_type = data.get('character_type', '').lower()
-                    if not character_type:
-                        continue
 
                     all_classes = get_all_character_classes()
                     CharClass = None
@@ -483,18 +577,27 @@ class Level:
 
                     if CharClass is None:
                         CharClass = Character
-                        print(f"[WARNING] Unknown character type '{character_type}', using default")
+                        print(f"[NET] Using ghost marker for remote player {player_id}; character_type='{character_type or 'missing'}'")
 
-                    other_player = CharClass(
-                        (data['x'], data['y']),
-                        [self.visible_sprites],
-                        self.obstacle_sprites,
-                        player_id=player_id,
-                        is_local=False
-                    )
+                    try:
+                        other_player = CharClass(
+                            (data['x'], data['y']),
+                            [self.visible_sprites],
+                            self.obstacle_sprites,
+                            player_id=player_id,
+                            is_local=False
+                        )
+                    except TypeError:
+                        other_player = Character(
+                            (data['x'], data['y']),
+                            [self.visible_sprites],
+                            self.obstacle_sprites,
+                            player_id=player_id,
+                            is_local=False
+                        )
                     other_player.name = data['name']
                     self.other_players[player_id] = other_player
-                    print(f"[DEBUG] Created remote player {player_id} as {character_type}")
+                    print(f"[NET] Created remote player marker {player_id} at ({data['x']}, {data['y']})")
                 else:
                     other_player = self.other_players[player_id]
                     other_player.set_position(data['x'], data['y'])
@@ -534,47 +637,63 @@ class Level:
             self.display_surface.blit(name_surface, offset_pos)
 
     def draw_status(self):
-        """Draw HUD: connection, hints, health bar, XP, equipped weapon."""
-        # Connection status
+        """Draw an arcade-style HUD that stays readable over the map."""
+
+        panel = pygame.Rect(10, 10, 292, 140)
+        overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
+        overlay.fill((6, 10, 18, 212))
+        pygame.draw.rect(overlay, (68, 232, 218, 235), overlay.get_rect(), width=2, border_radius=8)
+        pygame.draw.rect(overlay, (255, 218, 86, 215), pygame.Rect(7, 7, 6, panel.height - 14), border_radius=3)
+        self.display_surface.blit(overlay, panel)
+
+        title_font = pygame.font.Font(None, 22)
+        small_font = pygame.font.Font(None, 18)
+        tiny_font = pygame.font.Font(None, 16)
         status_color = (0, 255, 0) if self.connected else (255, 100, 100)
+        status = "Connected" if self.connected else "Local fallback"
         self.display_surface.blit(
-            self.font.render(self.connection_status, True, status_color), (10, 10))
+            title_font.render("Fruit Drop Rush", True, (255, 244, 172)), (panel.x + 20, panel.y + 8))
+        self.display_surface.blit(
+            tiny_font.render(status, True, status_color), (panel.right - 82, panel.y + 12))
 
         self.display_surface.blit(
-            self.font.render("Collect fruit before time runs out | I: Inventory | SPACE: Attack", True, (255, 255, 255)), (10, 40))
+            tiny_font.render("L Level | ESC Leave", True, (230, 239, 252)), (panel.x + 20, panel.y + 31))
 
         # Health bar
-        bar_rect  = pygame.Rect(10, 70, HEALTH_BAR_WIDTH, BAR_HEIGHT)
+        hp_width = 148
+        bar_rect  = pygame.Rect(panel.x + 50, panel.y + 50, hp_width, 14)
         ratio     = max(0.0, self.player.hp / max(1, self.player.max_hp))
-        fill_rect = pygame.Rect(10, 70, int(HEALTH_BAR_WIDTH * ratio), BAR_HEIGHT)
+        fill_rect = pygame.Rect(bar_rect.x, bar_rect.y, int(hp_width * ratio), bar_rect.height)
+        self.display_surface.blit(small_font.render("HP", True, (250, 252, 255)), (panel.x + 20, panel.y + 47))
         pygame.draw.rect(self.display_surface, UI_BG_COLOR,     bar_rect)
         pygame.draw.rect(self.display_surface, HEALTH_COLOR,    fill_rect)
         pygame.draw.rect(self.display_surface, UI_BORDER_COLOR, bar_rect, 2)
         self.display_surface.blit(
-            self.font.render(f"HP {self.player.hp}/{self.player.max_hp}", True, (255, 255, 255)),
-            (10 + HEALTH_BAR_WIDTH + 8, 70))
+            tiny_font.render(f"{self.player.hp}/{self.player.max_hp}", True, (255, 255, 255)),
+            (bar_rect.right + 7, bar_rect.y))
 
-# Fruit Drop Rush score and countdown
-        self.display_surface.blit(
-            self.font.render(f"Score: {self.score}", True, (255, 255, 255)), (10, 100))
-        self.display_surface.blit(
-            self.font.render(f"Fruits: {self.fruits_collected}", True, (255, 210, 120)), (10, 125))
-        self.display_surface.blit(
-            self.font.render(f"Time: {self.time_remaining()}s", True, (120, 210, 255)), (10, 150))
+        left_x = panel.x + 20
+        right_x = panel.x + 150
+        base_y = panel.y + 76
+        stats = [
+            (f"Score {self.score}", (245, 248, 255), left_x, base_y),
+            (f"Time {self.time_remaining()}s", (120, 210, 255), right_x, base_y),
+            (f"Fruits {self.fruits_collected}", (255, 210, 120), left_x, base_y + 20),
+            (f"Hazards -{HAZARD_DAMAGE} HP" if self.hazards_active else "Hazards at half-time", (255, 116, 142), right_x, base_y + 20),
+        ]
+        for text, color, x, y in stats:
+            self.display_surface.blit(small_font.render(text, True, color), (x, y))
 
-        # XP
-        self.display_surface.blit(
-            self.font.render(f"XP: {self.player.exp}", True, (255, 215, 0)), (10, 175))
-
-        # Equipped weapon
         if self.player.equipped_weapon:
             w = self.player.equipped_weapon
-            msg = f"Weapon: {w.name}  (+{w.attack_bonus} atk)"
+            msg = f"I/SPACE | XP {self.player.exp} | {w.name} +{w.attack_bonus}"
             color = (255, 200, 100)
         else:
-            msg   = "Weapon: none  (open I → select weapon → Equip)"
+            msg   = f"I/SPACE | XP {self.player.exp} | no weapon"
             color = (150, 150, 150)
-        self.display_surface.blit(self.font.render(msg, True, color), (10, 200))
+        if len(msg) > 38:
+            msg = msg[:35] + "..."
+        self.display_surface.blit(tiny_font.render(msg, True, color), (left_x, base_y + 40))
 
     # ------------------------------------------------------------------
     # Time travel + enemy state snapshots
@@ -673,25 +792,30 @@ class Level:
                     self.is_time_traveling = False
 
     def draw_time_travel_ui(self):
-        font_small = pygame.font.Font(None, 24)
+        font_small = pygame.font.Font(None, 18)
+        panel = pygame.Rect(WIDTH - 244, 10, 234, 58)
+        overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
+        overlay.fill((8, 12, 20, 174))
+        pygame.draw.rect(overlay, (74, 92, 124, 210), overlay.get_rect(), width=2, border_radius=8)
+        self.display_surface.blit(overlay, panel)
 
         if not self.connected:
             if self.is_time_traveling:
                 font_large = pygame.font.Font(None, 48)
-                text = font_large.render("⏪ TIME TRAVELING", True, (255, 100, 100))
+                text = font_large.render("TIME TRAVELING", True, (255, 100, 100))
                 rect = text.get_rect(center=(WIDTH // 2, 50))
                 self.display_surface.blit(text, rect)
 
             info = f"History: {self.time_travel.get_history_size()} | Future: {self.time_travel.get_future_size()}"
             text = font_small.render(info, True, (255, 255, 255))
-            self.display_surface.blit(text, (WIDTH - 340, 90))
+            self.display_surface.blit(text, (panel.x + 10, panel.y + 10))
 
             hint = "R: Rewind | F: Replay"
             text = font_small.render(hint, True, (200, 200, 200))
-            self.display_surface.blit(text, (WIDTH - 340, 118))
+            self.display_surface.blit(text, (panel.x + 10, panel.y + 32))
         else:
-            text = font_small.render("Time travel disabled (multiplayer)", True, (150, 150, 150))
-            self.display_surface.blit(text, (WIDTH - 340, 90))
+            text = font_small.render("Replay off: multiplayer", True, (150, 150, 150))
+            self.display_surface.blit(text, (panel.x + 10, panel.y + 21))
 
     # ------------------------------------------------------------------
     # Main loop
@@ -709,6 +833,7 @@ class Level:
         if not self.game_over:
             self.player.update()
             self.collect_fruits()
+            self.handle_hazards()
         for other_player in self.other_players.values():
             if not self.game_over:
                 other_player.update()

@@ -13,6 +13,8 @@ class ProfileScreen(BaseScreen):
         super().enter()
         self.player_sessions = None
         self.profile_summary = None
+        self.chat_preview = None
+        self.chat_session_id = ""
         self._refresh_cached_data()
 
     def _profile_player(self):
@@ -76,9 +78,15 @@ class ProfileScreen(BaseScreen):
             row = pygame.Rect(history.x + 14, history.y + 50 + index * 34, history.width - 28, 28)
             game_name = game.title if game else session.game_id
             self.draw_list_row(row, game_name, "", f"{session.result} {session.score:,} pts")
-        chat_session_id = player_sessions[0].session_id if player_sessions else "global"
         draw_text(self.app.screen, "Session Chat Preview", self.app.fonts.body, Palette.TEXT, chat.x + 16, chat.y + 14)
+        if not player_sessions:
+            draw_text(self.app.screen, "No recent session chat to preview.", self.app.fonts.small, Palette.MUTED, chat.x + 18, chat.y + 100)
+            return
+        chat_session_id = player_sessions[0].session_id
+        if self.chat_preview is None or self.chat_session_id != chat_session_id:
+            self.chat_session_id = chat_session_id
+            self.chat_preview = self.app.backend.get_chat_preview(chat_session_id)
         draw_wrapped(self.app.screen, f"Recent messages for session {chat_session_id}. Open a game from Browse to use the full session chat.", self.app.fonts.small, Palette.MUTED, pygame.Rect(chat.x + 16, chat.y + 45, chat.width - 32, 44), max_lines=2)
-        for index, message in enumerate(self.app.backend.get_chat_preview(chat_session_id)):
+        for index, message in enumerate(self.chat_preview):
             draw_text(self.app.screen, f"[{message.timestamp}] {message.sender}", self.app.fonts.small, Palette.ACCENT, chat.x + 18, chat.y + 100 + index * 42, max_width=220)
             draw_text(self.app.screen, message.text, self.app.fonts.small, Palette.TEXT, chat.x + 250, chat.y + 100 + index * 42, max_width=290)

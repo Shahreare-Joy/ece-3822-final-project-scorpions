@@ -21,7 +21,18 @@ from typing import Any
 from datastructures.hash_table import ChainedHashTable
 
 
-VALID_OUTCOMES = {"Win", "Loss", "Draw", "Finished", "DNF"}
+VALID_OUTCOMES = {
+    "Win",
+    "Loss",
+    "Draw",
+    "Finished",
+    "DNF",
+    "Complete",
+    "Game Over",
+    "Time Up",
+    "Quit",
+    "Return to arcade",
+}
 
 
 @dataclass
