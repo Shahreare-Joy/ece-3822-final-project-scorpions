@@ -1,90 +1,152 @@
 """
-subcharacter.py - Playable character classes for Game 4
+character.py - Character classes for the game
 
-Game 4 uses the newer Character base from character.py, which already provides
-inventory, combat, animation, and multiplayer support. These subclasses only
-define each archetype's stats plus the sprite assets they should load.
+Students create 4 unique character classes, each with:
+- Different stats (hp, attack, defense, speed)
+- Unique special ability
+- Character sprite image
+
+Author: Kevin Le
+Date: 1/23/2026
+Lab: Lab 2 - Character Classes
 """
 
-from __future__ import annotations
-
 import pygame
-<<<<<<< HEAD
-=======
 from settings import *
 from character import Character as BaseCharacter
->>>>>>> feature/chat-system
 
-from character import Character
-from sprite_loader import SpriteLoader
+class Character(pygame.sprite.Sprite):
+    """Base Character class - all characters inherit from this"""
+    
+    def __init__(self, pos, groups, obstacle_sprites):
+        super().__init__(groups)
+
+        # Stats (override in subclasses)
+        self.character_name = "Unknown"
+        self.hp = 100
+        self.max_hp = 100
+        self.attack = 10
+        self.defense = 5
+        self.speed = 5
+
+        # Sanitize inputs
+        self.__sanitize_inputs()
+        
+        # DO NOT EDIT
+        self.image = pygame.Surface((64, 64))
+        self.image.fill((255, 0, 255))  # Magenta placeholder
+        self.rect = self.image.get_rect(topleft=pos)
+        self.hitbox = self.rect.inflate(0, -26)
+        
+        # Movement
+        self.direction = pygame.math.Vector2()
+        self.obstacle_sprites = obstacle_sprites
+        
+    def input(self):
+        """Handle player input"""
+        keys = pygame.key.get_pressed()
+
+        if keys[pygame.K_UP]:
+            self.direction.y = -1
+        elif keys[pygame.K_DOWN]:
+            self.direction.y = 1
+        else:
+            self.direction.y = 0
+
+        if keys[pygame.K_RIGHT]:
+            self.direction.x = 1
+        elif keys[pygame.K_LEFT]:
+            self.direction.x = -1
+        else:
+            self.direction.x = 0
+    
+    def move(self, speed):
+        """Move the character"""
+        if self.direction.magnitude() != 0:
+            self.direction = self.direction.normalize()
+
+        self.hitbox.x += self.direction.x * speed
+        self.collision('horizontal')
+        self.hitbox.y += self.direction.y * speed
+        self.collision('vertical')
+        self.rect.center = self.hitbox.center
+    
+    def collision(self, direction):
+        """Handle collision with obstacles"""
+        if direction == 'horizontal':
+            for sprite in self.obstacle_sprites:
+                if sprite.hitbox.colliderect(self.hitbox):
+                    if self.direction.x > 0:  # moving right
+                        self.hitbox.right = sprite.hitbox.left
+                    if self.direction.x < 0:  # moving left
+                        self.hitbox.left = sprite.hitbox.right
+
+        if direction == 'vertical':
+            for sprite in self.obstacle_sprites:
+                if sprite.hitbox.colliderect(self.hitbox):
+                    if self.direction.y > 0:  # moving down
+                        self.hitbox.bottom = sprite.hitbox.top
+                    if self.direction.y < 0:  # moving up
+                        self.hitbox.top = sprite.hitbox.bottom
+    
+    def update(self):
+        """Update character each frame"""
+        self.input()
+        self.move(self.speed)
+
+    def take_damage(self, amount):
+        """Reduce HP when taking damage, accounting for defense"""
+        actually_damage = max(amount - self.defense, 0)
+        self.hp -= actually_damage
+        if self.hp < 0:
+            self.hp = 0
+        return actually_damage
+
+    def heal(self, amount):
+        """Increase HP when healing"""
+        self.hp += amount
+        if self.hp > self.max_hp:
+            self.hp = self.max_hp
+
+    def is_alive(self):
+        """Check if character is alive"""
+        return self.hp > 0  
+
+    def _validate_stats(self):
+        """Ensure stats are within valid ranges"""
+        self.hp = max(0, min(self.hp, self.max_hp))
+        self.attack = max(0, self.attack)
+        self.defense = max(0, self.defense)
+        self.speed = max(1, self.speed)  
+
+    def __sanitize_inputs(self):
+        """Sanitize input values for stats"""
+        self._validate_stats()
+        
+    def special_ability(self):
+        """Special ability - override in subclasses"""
+        pass
+    
+    @staticmethod
+    def get_display_name():
+        """Return character name for display"""
+        return "Unknown"
+    
+    @staticmethod
+    def get_description():
+        """Return character description"""
+        return "A mysterious character"
+    
+    @staticmethod
+    def get_preview_image():
+        """Return path to character preview image"""
+        return '../graphics/test/player.png'
 
 
-class Game4Character(Character):
-    """Shared setup for Game 4's playable characters."""
+# ============================================
+# IMPLEMENTED CHARACTER CLASSES 
+# ============================================
 
-<<<<<<< HEAD
-    SPRITE_KEY = ""
-    DISPLAY_NAME = "Unknown"
-    DESCRIPTION = "A mysterious character."
-    MAX_HP = 100
-    ATTACK = 10
-    DEFENSE = 5
-    SPEED = 5
-
-    def __init__(self, pos, groups, obstacle_sprites, player_id=None, is_local=True):
-        super().__init__(pos, groups, obstacle_sprites, player_id=player_id, is_local=is_local)
-
-        self.character_name = self.DISPLAY_NAME
-        self.max_hp = self.MAX_HP
-        self.hp = self.MAX_HP
-        self.attack = self.ATTACK
-        self.defense = self.DEFENSE
-        self.speed = self.SPEED
-
-        self._load_game4_assets()
-
-    def _load_game4_assets(self):
-        """Load the correct sprite set for this class and seed the first frame."""
-        self.animations = SpriteLoader.load_character_sprites(self.SPRITE_KEY)
-
-        for direction in ("up", "down", "left", "right"):
-            frames = self.animations.get(direction) or []
-            if not frames:
-                fallback = pygame.Surface((64, 64))
-                fallback.fill((255, 0, 255))
-                frames = [fallback]
-                self.animations[direction] = frames
-
-            idle_key = f"{direction}_idle"
-            if idle_key not in self.animations or not self.animations[idle_key]:
-                self.animations[idle_key] = frames.copy()
-
-        self.status = "down"
-        self.image = self.animations["down"][0]
-        self.rect = self.image.get_rect(center=self.hitbox.center)
-
-    @classmethod
-    def get_display_name(cls):
-        return cls.DISPLAY_NAME
-
-    @classmethod
-    def get_description(cls):
-        return cls.DESCRIPTION
-
-    @classmethod
-    def get_preview_image(cls):
-        return f"../../graphics/characters/{cls.SPRITE_KEY}.png"
-
-
-class BambooVanguard(Game4Character):
-    SPRITE_KEY = "bamboovanguard"
-    DISPLAY_NAME = "Bamboo Vanguard"
-    DESCRIPTION = "A sturdy vanguard with high defense and healing abilities."
-    MAX_HP = 70
-    ATTACK = 50
-    DEFENSE = 100
-    SPEED = 50
-=======
 class BambooVanguard(BaseCharacter):
     def __init__(self, pos, groups, obstacle_sprites, name="Player", is_local=False, player_id=None):
         super().__init__(pos, groups, obstacle_sprites, player_id=player_id or name, is_local=is_local)
@@ -100,38 +162,10 @@ class BambooVanguard(BaseCharacter):
         self.defense = 100
         self.speed = 5
         self.import_player_assets()
->>>>>>> feature/chat-system
 
     def special_ability(self):
         self.heal(self.max_hp // 10)
 
-<<<<<<< HEAD
-
-class SilkbladeDuelist(Game4Character):
-    SPRITE_KEY = "silkbladeduelist"
-    DISPLAY_NAME = "Silkblade Duelist"
-    DESCRIPTION = "A swift and agile duelist with high attack power."
-    MAX_HP = 70
-    ATTACK = 100
-    DEFENSE = 40
-    SPEED = 80
-
-    def special_ability(self):
-        self.dodge_chance = 1.0
-
-
-class Monk(Game4Character):
-    SPRITE_KEY = "monk"
-    DISPLAY_NAME = "Monk"
-    DESCRIPTION = "A monk who meditates and gains spiritual insight."
-    MAX_HP = 100
-    ATTACK = 50
-    DEFENSE = 75
-    SPEED = 40
-
-    def special_ability(self):
-        self.defense += 10
-=======
     @staticmethod
     def get_display_name():
         return "Bamboo Vanguard"
@@ -248,4 +282,3 @@ class WanderingTraveler(BaseCharacter):
 def get_all_character_classes():
     """Return list of all character classes"""
     return [BambooVanguard, SilkbladeDuelist, Monk, WanderingTraveler]
->>>>>>> feature/chat-system
