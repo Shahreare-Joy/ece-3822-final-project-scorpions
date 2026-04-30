@@ -2,15 +2,17 @@
 enemy.py - Enemy characters that patrol or wander the world
 
 Patrol enemies use linked list patrol paths (lab exercise).
+Random enemies wander freely without a patrol path.
 
 Lab: Lab 6 - Sparse World Map
 """
 
 import pygame
 import math
+import random
 from datastructures.patrol_path import PatrolPath
 
-# Enemy spawn data (Wandering Goblin removed)
+# Enemy spawn data
 ENEMY_SPAWN_DATA = [
     {
         "name": "Forest Guard",
@@ -62,39 +64,51 @@ ENEMY_SPAWN_DATA = [
         "health": 40,  "exp": 20, "attack_damage": 5,
         "notice_radius": 150, "attack_radius": 50,
     },
+    {
+        "name": "Wandering Goblin",
+        "spawn": (16, 33),
+        "waypoints": [],            # no waypoints needed for random movement
+        "patrol_type": "random",
+        "speed": 1.2,
+        "description": "Roams the scrublands unpredictably",
+        "health": 50,  "exp": 25, "attack_damage": 10,
+        "notice_radius": 150, "attack_radius": 70,
+    },
 ]
-
-# Sprites that actually exist in graphics/enemies/
-_KNOWN_SPRITES = {'forest_guard', 'village_merchant', 'temple_priest',
-                  'dungeon_scout', 'market_vendor'}
 
 
 class Enemy(pygame.sprite.Sprite):
     """
-    Enemy character that follows a patrol path.
+    Enemy character that follows a patrol path or wanders randomly.
 
-    Patrol types: one_way / circular / back_and_forth
-    Uses a PatrolPath linked list to determine movement.
+    Patrol enemies (one_way / circular / back_and_forth) use a PatrolPath
+    linked list to determine movement — that is the lab exercise.
+
+    The random enemy type picks targets near its spawn and wanders freely;
+    it does NOT use a PatrolPath so students don't need to implement anything
+    special to see it move.
     """
 
     def __init__(self, name, start_x, start_y, patrol_path, obstacle_sprites,
                  speed=1.0, sprite_name=None, patrol_type=None,
                  health=60, exp=30, attack_damage=10,
                  notice_radius=200, attack_radius=60,
-                 damage_player=None):
+                 damage_player=None,
+                 on_death=None):          # <-- NEW: callback for kill scoring
         super().__init__()
 
         self.name = name
         self.speed = speed
         self.patrol_path = patrol_path
         self.obstacle_sprites = obstacle_sprites
-
-        # Resolve sprite name, fall back to dungeon_scout if not found
-        raw_name = (sprite_name or name.lower().replace(' ', '_'))
-        self.sprite_name = raw_name if raw_name in _KNOWN_SPRITES else 'dungeon_scout'
+        self.sprite_name = sprite_name or name.lower().replace(' ', '_')
+        self.on_death = on_death          # called once when this enemy dies
 
         # Determine movement mode
-        self.patrol_type = patrol_path.patrol_type if patrol_path is not None else 'one_way'
+        if patrol_type == "random" or patrol_path is None:
+            self.patrol_type = "random"
+        else:
+            self.patrol_type = patrol_path.patrol_type
 
         # Float position for sub-pixel accumulation (pygame Rects are integers)
         self.x = float(start_x * 64 + 32)
@@ -105,14 +119,22 @@ class Enemy(pygame.sprite.Sprite):
         self.status = 'down_idle'
         self.last_direction = 'down'
 
-        # Patrol state
-        if patrol_path is not None:
+        # --- Patrol state (used by one_way / circular / back_and_forth) ---
+        if self.patrol_type != "random" and patrol_path is not None:
             self.target_waypoint = self.patrol_path.get_next_waypoint()
         else:
             self.target_waypoint = None
         self.wait_timer = 0
         self.is_waiting = False
         self.patrol_active = True
+
+        # --- Random wander state ---
+        if self.patrol_type == "random":
+            self.spawn_x = self.x          # pixel coords of spawn
+            self.spawn_y = self.y
+            self.wander_radius = 5         # tiles
+            self.wander_target = None      # (pixel_x, pixel_y)
+            self.wander_timer = 0.0        # seconds until forced target change
 
         # Sprites
         self.load_sprites()
@@ -127,18 +149,18 @@ class Enemy(pygame.sprite.Sprite):
         self.attack_damage = attack_damage
         self.notice_radius = notice_radius
         self.attack_radius = attack_radius
-        self.damage_player = damage_player
+        self.damage_player = damage_player   # callback: damage_player(amount)
 
         # Combat state
         self.combat_status = 'patrol'        # 'patrol' | 'chase' | 'attack'
         self.can_attack = True
         self.attack_time = 0
-        self.attack_cooldown = 800
+        self.attack_cooldown = 800           # ms between attacks
 
         # Hit invincibility
         self.vulnerable = True
         self.hit_time = 0
-        self.invincibility_duration = 300
+        self.invincibility_duration = 300    # ms
 
         self.frame_index = 0
         self.animation_speed = 0.15
@@ -152,8 +174,7 @@ class Enemy(pygame.sprite.Sprite):
         from sprite_loader import SpriteLoader
         self.animations = SpriteLoader.load_enemy_sprites(self.sprite_name)
         import os as _os
-        _enemies_dir = _os.path.join(
-            _os.path.dirname(_os.path.abspath(__file__)), '..', '..', 'graphics', 'enemies')
+        _enemies_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', 'graphics', 'enemies')
         sprite_info = SpriteLoader.get_sprite_info(self.sprite_name, _enemies_dir)
         print(f"  Loaded {sprite_info['type']} sprites for {self.name}: {sprite_info}")
 
@@ -173,12 +194,59 @@ class Enemy(pygame.sprite.Sprite):
                 self.can_attack = False
                 self.attack_time = pygame.time.get_ticks()
         else:
-            self._update_patrol()
+            if self.patrol_type == "random":
+                self._update_wander()
+            else:
+                self._update_patrol()
 
         self._cooldowns_combat()
         self.get_status()
         self.animate()
         self.check_death()
+
+    # ------------------------------------------------------------------
+    # Random wander logic
+    # ------------------------------------------------------------------
+
+    def _update_wander(self):
+        """Wander randomly within wander_radius tiles of spawn."""
+        self.wander_timer -= 1 / 60
+
+        if self.wander_target is None or self._reached_wander_target() or self.wander_timer <= 0:
+            self._pick_wander_target()
+            return
+
+        tx, ty = self.wander_target
+        dx = tx - self.hitbox.centerx
+        dy = ty - self.hitbox.centery
+        distance = math.sqrt(dx * dx + dy * dy)
+
+        if distance < self.speed * 2:
+            self.direction.x = 0
+            self.direction.y = 0
+            self.wander_target = None
+        else:
+            self.direction.x = (dx / distance) * self.speed
+            self.direction.y = (dy / distance) * self.speed
+            self.move()
+
+    def _pick_wander_target(self):
+        """Choose a new random tile within wander_radius of spawn."""
+        for _ in range(20):
+            dx = random.randint(-self.wander_radius, self.wander_radius)
+            dy = random.randint(-self.wander_radius, self.wander_radius)
+            if dx != 0 or dy != 0:
+                break
+        self.wander_target = (self.spawn_x + dx * 64, self.spawn_y + dy * 64)
+        self.wander_timer = random.uniform(4.0, 10.0)
+
+    def _reached_wander_target(self):
+        if self.wander_target is None:
+            return True
+        tx, ty = self.wander_target
+        dx = tx - self.hitbox.centerx
+        dy = ty - self.hitbox.centery
+        return math.sqrt(dx * dx + dy * dy) < self.speed * 2
 
     # ------------------------------------------------------------------
     # Patrol logic (one_way / circular / back_and_forth)
@@ -232,7 +300,7 @@ class Enemy(pygame.sprite.Sprite):
             self.move()
 
     # ------------------------------------------------------------------
-    # Movement + collision (spatially culled for performance)
+    # Movement + collision
     # ------------------------------------------------------------------
 
     def move(self):
@@ -256,20 +324,12 @@ class Enemy(pygame.sprite.Sprite):
         self.rect.center = self.hitbox.center
 
     def collision(self, direction):
-        """Collision check against nearby obstacles only (spatially culled)."""
-        ex = self.hitbox.centerx
-        ey = self.hitbox.centery
-        check_radius = 128  # only test sprites within ~2 tiles
-
+        """Collision with walls and other enemies."""
         if direction == 'horizontal':
             for sprite in self.obstacle_sprites:
                 if sprite is self:
                     continue
                 sprite_rect = getattr(sprite, 'hitbox', sprite.rect)
-                if abs(sprite_rect.centerx - ex) > check_radius:
-                    continue
-                if abs(sprite_rect.centery - ey) > check_radius:
-                    continue
                 if sprite_rect.colliderect(self.hitbox):
                     if self.direction.x > 0:
                         self.hitbox.right = sprite_rect.left
@@ -281,10 +341,6 @@ class Enemy(pygame.sprite.Sprite):
                 if sprite is self:
                     continue
                 sprite_rect = getattr(sprite, 'hitbox', sprite.rect)
-                if abs(sprite_rect.centerx - ex) > check_radius:
-                    continue
-                if abs(sprite_rect.centery - ey) > check_radius:
-                    continue
                 if sprite_rect.colliderect(self.hitbox):
                     if self.direction.y > 0:
                         self.hitbox.bottom = sprite_rect.top
@@ -324,7 +380,6 @@ class Enemy(pygame.sprite.Sprite):
             self.frame_index = 0
         self.image = animation[int(self.frame_index)]
 
-        # Flicker while invincible after being hit
         if not self.vulnerable:
             from math import sin
             self.image = self.image.copy()
@@ -335,7 +390,7 @@ class Enemy(pygame.sprite.Sprite):
     # ------------------------------------------------------------------
 
     def get_player_distance_direction(self, player):
-        """Return (pixel_distance, normalized Vector2) toward player."""
+        """Return (pixel_distance, normalized_Vector2) toward player."""
         enemy_vec  = pygame.math.Vector2(self.rect.center)
         player_vec = pygame.math.Vector2(player.rect.center)
         distance   = (player_vec - enemy_vec).magnitude()
@@ -363,8 +418,10 @@ class Enemy(pygame.sprite.Sprite):
             self.hit_time = pygame.time.get_ticks()
 
     def check_death(self):
-        """Remove enemy and award XP when health reaches zero."""
+        """Remove enemy and fire on_death callback when health reaches zero."""
         if self.health <= 0:
+            if self.on_death:
+                self.on_death()          # <-- notify Level to increment score
             self.kill()
 
     def _cooldowns_combat(self):
@@ -393,7 +450,12 @@ class Enemy(pygame.sprite.Sprite):
         ex = self.rect.centerx - camera_offset[0]
         ey = self.rect.centery - camera_offset[1]
 
-        if self.target_waypoint and self.patrol_active:
+        if self.patrol_type == "random" and self.wander_target:
+            tx = self.wander_target[0] - camera_offset[0]
+            ty = self.wander_target[1] - camera_offset[1]
+            pygame.draw.line(surface, (0, 200, 255), (ex, ey), (int(tx), int(ty)), 2)
+            pygame.draw.circle(surface, (0, 200, 255), (int(tx), int(ty)), 8, 2)
+        elif self.target_waypoint and self.patrol_active:
             tx = self.target_waypoint.x * 64 + 32 - camera_offset[0]
             ty = self.target_waypoint.y * 64 + 32 - camera_offset[1]
             pygame.draw.line(surface, (255, 255, 0), (ex, ey), (int(tx), int(ty)), 2)
@@ -406,6 +468,12 @@ class Enemy(pygame.sprite.Sprite):
 
     def get_debug_status(self):
         """One-line status string for the debug overlay."""
+        if self.patrol_type == "random":
+            if self.wander_target:
+                tx = int(self.wander_target[0] / 64)
+                ty = int(self.wander_target[1] / 64)
+                return f"{self.name}: Wandering to ({tx}, {ty})"
+            return f"{self.name}: Choosing target..."
         if not self.patrol_active:
             return f"{self.name}: Patrol Complete"
         if self.is_waiting:
@@ -419,11 +487,15 @@ class Enemy(pygame.sprite.Sprite):
     # ------------------------------------------------------------------
 
     def reset_patrol(self):
-        """Reset enemy to the start of its patrol."""
+        """Reset enemy to the start of its patrol (or clear wander target)."""
         self.direction.x = 0
         self.direction.y = 0
-        self.patrol_path.reset()
-        self.target_waypoint = self.patrol_path.get_next_waypoint()
-        self.patrol_active = True
-        self.is_waiting = False
-        self.wait_timer = 0
+        if self.patrol_type == "random":
+            self.wander_target = None
+            self.wander_timer = 0.0
+        else:
+            self.patrol_path.reset()
+            self.target_waypoint = self.patrol_path.get_next_waypoint()
+            self.patrol_active = True
+            self.is_waiting = False
+            self.wait_timer = 0
