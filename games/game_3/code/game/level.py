@@ -30,6 +30,7 @@ class Level:
         self.ground_sprites = pygame.sprite.Group()
         self.object_sprites = pygame.sprite.Group()
         self.obstacle_sprites = pygame.sprite.Group()
+        self.static_map_surface = None
  
         # Combat sprite groups
         self.current_attack = None
@@ -41,6 +42,7 @@ class Level:
  
         # Sprite setup
         self.create_map()
+        self.static_map_surface = self._build_static_map_surface()
  
         # Network setup with serializer
         self.network = NetworkClient(player_name, server_host, server_port, serializer)
@@ -72,6 +74,8 @@ class Level:
         self.enemies = pygame.sprite.Group()
         self.enemy_respawn_delay_ms = 3500
         self.enemy_respawn_queue = {}
+        self.network_send_interval_ms = 75
+        self._last_network_send_ms = 0
         self.create_enemies()
  
         # Debug mode for showing enemy paths
@@ -351,6 +355,28 @@ class Level:
             f"{map_width}x{map_height}, {len(self.blocked_tiles)} blocked tiles."
         )
 
+    def _build_static_map_surface(self):
+        """Cache static map art once so each frame only blits the visible window."""
+        if self.world_rect.width <= 0 or self.world_rect.height <= 0:
+            return None
+
+        surface = pygame.Surface(self.world_rect.size).convert()
+        surface.fill((18, 22, 24))
+
+        for group in (self.ground_sprites, self.object_sprites):
+            for sprite in sorted(group.sprites(), key=lambda item: item.rect.centery):
+                surface.blit(sprite.image, sprite.rect.topleft)
+
+        grid = pygame.Surface(self.world_rect.size, pygame.SRCALPHA)
+        line_color = (0, 0, 0, 22)
+        for world_x in range(0, self.world_rect.width + 1, TILESIZE):
+            pygame.draw.line(grid, line_color, (world_x, 0), (world_x, self.world_rect.height), 1)
+        for world_y in range(0, self.world_rect.height + 1, TILESIZE):
+            pygame.draw.line(grid, line_color, (0, world_y), (self.world_rect.width, world_y), 1)
+        surface.blit(grid, (0, 0))
+        print("[PERF] Game 3 static map cache built")
+        return surface
+
     def add_starting_items(self):
         """Add items defined in item.py's create_example_items() to the player's inventory."""
         print("Adding starting items to inventory...")
@@ -627,6 +653,7 @@ class Level:
             if hasattr(group, "empty"):
                 group.empty()
         self.enemy_respawn_queue.clear()
+        self.static_map_surface = None
  
     # ------------------------------------------------------------------
  
@@ -636,10 +663,12 @@ class Level:
             self.connection_status = "Disconnected"
             return
  
-        # Send our position, character type, and status to server
-        character_type = self.player.character_name.lower()
-        status = self.player.status.replace("_idle", "").replace("_attack", "")
-        self.network.send_update(self.player.rect.x, self.player.rect.y, character_type, status)
+        now = pygame.time.get_ticks()
+        if now - self._last_network_send_ms >= self.network_send_interval_ms:
+            character_type = self.player.character_name.lower()
+            status = self.player.status.replace("_idle", "").replace("_attack", "")
+            self.network.send_update(self.player.rect.x, self.player.rect.y, character_type, status)
+            self._last_network_send_ms = now
  
         # Get updates from server
         updates = self.network.get_updates()
@@ -875,6 +904,17 @@ class Level:
         else:
             text = font_small.render("Time travel disabled (multiplayer)", True, (150, 150, 150))
             self.display_surface.blit(text, (10, 100))
+
+    def _active_enemy_rect(self):
+        """Enemies outside this camera/player area can sleep for a frame."""
+        camera_rect = pygame.Rect(
+            int(self.visible_sprites.offset.x) - 320,
+            int(self.visible_sprites.offset.y) - 320,
+            WIDTH + 640,
+            HEIGHT + 640,
+        )
+        player_rect = self.player.rect.inflate(520, 520)
+        return camera_rect.union(player_rect)
  
     # ------------------------------------------------------------------
     # Main loop
@@ -883,7 +923,13 @@ class Level:
     def run(self, events):
         """Main update loop"""
         if self.game_over:
-            self.visible_sprites.custom_draw(self.player, self.ground_sprites, self.object_sprites, self.world_rect)
+            self.visible_sprites.custom_draw(
+                self.player,
+                self.ground_sprites,
+                self.object_sprites,
+                self.world_rect,
+                self.static_map_surface,
+            )
             self.draw_names()
             self.draw_status()
             self._draw_score_timer_hud()
@@ -904,16 +950,25 @@ class Level:
  
         # Update enemies; freeze them while time-traveling
         if not self.is_time_traveling:
+            active_enemy_rect = self._active_enemy_rect()
             for enemy in list(self.enemies):
+                if not active_enemy_rect.colliderect(enemy.rect):
+                    continue
                 enemy.enemy_update(self.player)   # set combat AI state first
-            self.enemies.update()                  # then move/animate/check death
+                enemy.update()                     # then move/animate/check death
             self.player_attack_logic()             # weapon collisions
             self.update_enemy_respawns()
 
         self._check_game_over()
  
         # Draw (Y-sorted; custom_draw does NOT call update())
-        self.visible_sprites.custom_draw(self.player, self.ground_sprites, self.object_sprites, self.world_rect)
+        self.visible_sprites.custom_draw(
+            self.player,
+            self.ground_sprites,
+            self.object_sprites,
+            self.world_rect,
+            self.static_map_surface,
+        )
  
         self.record_player_state()
  
@@ -994,25 +1049,37 @@ class YSortCameraGroup(pygame.sprite.Group):
         self.half_height = self.display_surface.get_size()[1] // 2
         self.offset = pygame.math.Vector2()
  
-    def custom_draw(self, player, ground_sprites=None, object_sprites=None, world_rect=None):
+    def custom_draw(self, player, ground_sprites=None, object_sprites=None, world_rect=None, static_map_surface=None):
         """Draw static map layers first, then enemies, player, and UI."""
         self.offset.x = player.rect.centerx - self.half_width
         self.offset.y = player.rect.centery - self.half_height
+
+        screen_rect = self.display_surface.get_rect()
+        camera_rect = pygame.Rect(int(self.offset.x), int(self.offset.y), screen_rect.width, screen_rect.height)
 
         def draw_group(group):
             if not group:
                 return
             for sprite in sorted(group.sprites(), key=lambda item: item.rect.centery):
+                if not camera_rect.colliderect(sprite.rect):
+                    continue
                 offset_pos = sprite.rect.topleft - self.offset
                 self.display_surface.blit(sprite.image, offset_pos)
 
-        # Keep map/ground out of the dynamic Y-sort so it never covers players.
-        draw_group(ground_sprites)
-        draw_group(object_sprites)
-        self._draw_block_grid(world_rect)
+        if static_map_surface is not None:
+            source_rect = camera_rect.clip(static_map_surface.get_rect())
+            if source_rect.width and source_rect.height:
+                self.display_surface.blit(static_map_surface, (source_rect.x - camera_rect.x, source_rect.y - camera_rect.y), source_rect)
+        else:
+            # Keep map/ground out of the dynamic Y-sort so it never covers players.
+            draw_group(ground_sprites)
+            draw_group(object_sprites)
+            self._draw_block_grid(world_rect)
 
         for sprite in sorted([sprite for sprite in self.sprites() if sprite is not player],
                              key=lambda item: item.rect.centery):
+            if not camera_rect.colliderect(sprite.rect):
+                continue
             offset_pos = sprite.rect.topleft - self.offset
             self.display_surface.blit(sprite.image, offset_pos)
             if getattr(sprite, "max_health", None) is not None:
