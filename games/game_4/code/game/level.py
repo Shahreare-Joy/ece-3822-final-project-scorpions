@@ -26,8 +26,11 @@ class Level:
     def __init__(self, player_name, character_class,
                  server_host='localhost', server_port=8080, serializer='text'):
         self.display_surface = pygame.display.get_surface()
+        self.world_rect = pygame.Rect(0, 0, len(WORLD_MAP[0]) * TILESIZE, len(WORLD_MAP) * TILESIZE)
 
         self.visible_sprites   = YSortCameraGroup()
+        self.ground_sprites    = pygame.sprite.Group()
+        self.object_sprites    = pygame.sprite.Group()
         self.obstacle_sprites  = pygame.sprite.Group()
         self.current_attack    = None
         self.attack_sprites    = pygame.sprite.Group()
@@ -54,9 +57,26 @@ class Level:
         self.enemy_future      = []
 
         self.enemies = pygame.sprite.Group()
+        self.enemy_respawn_delay_ms = 3500
+        self.enemy_respawn_queue = {}
         self.create_enemies()
 
         self.show_enemy_debug = False
+        self.score = 0
+        self.game_duration_seconds = 60
+        self.start_time = pygame.time.get_ticks()
+        self.game_over = False
+        self._game_over_time = 0
+        self.outcome = "Finished"
+        self.result = "lose"
+        self._end_action = None
+        self._go_font_large = pygame.font.Font(None, 80)
+        self._go_font_med = pygame.font.Font(None, 48)
+        self._go_font_small = pygame.font.Font(None, 32)
+        button_width, button_height = 260, 55
+        center_x = WIDTH // 2
+        self._btn_play_again = pygame.Rect(center_x - button_width - 20, HEIGHT // 2 + 120, button_width, button_height)
+        self._btn_arcade = pygame.Rect(center_x + 20, HEIGHT // 2 + 120, button_width, button_height)
 
         # NPC / dialog system
         self.npcs       = pygame.sprite.Group()
@@ -127,6 +147,23 @@ class Level:
 
         return gid_map
 
+    def _fallback_tile_surface(self, sprite_type, row, col, tile_id):
+        """Create a simple visible map tile when uploaded map art is missing."""
+        if sprite_type == "boundary":
+            return None
+
+        surface = pygame.Surface((TILESIZE, TILESIZE), pygame.SRCALPHA)
+        if sprite_type == "grass":
+            base = 34 + ((row + col + int(tile_id)) % 3) * 8
+            surface.fill((18, base + 40, 36))
+            pygame.draw.line(surface, (42, 120, 58), (8, 56), (24, 38), 2)
+            pygame.draw.line(surface, (50, 138, 66), (38, 58), (52, 34), 2)
+        elif sprite_type == "object":
+            surface.fill((0, 0, 0, 0))
+            pygame.draw.rect(surface, (52, 115, 55), (24, 4, 16, 58), border_radius=6)
+            pygame.draw.circle(surface, (75, 165, 78), (32, 15), 16)
+        return surface
+
     def create_map(self):
         """Create the game map and player.
 
@@ -145,11 +182,11 @@ class Level:
 
         LAYERS = [
             ('map/map_FloorBlocks.csv', 'boundary',
-             [self.visible_sprites, self.obstacle_sprites]),
+             [self.obstacle_sprites]),
             ('map/map_Grass.csv',       'grass',
-             [self.visible_sprites]),
+             [self.ground_sprites]),
             ('map/map_Objects.csv',     'object',
-             [self.visible_sprites, self.obstacle_sprites]),
+             [self.object_sprites, self.obstacle_sprites]),
         ]
 
         floor_blocks_loaded = False
@@ -163,7 +200,7 @@ class Level:
                 for (row, col), tile_id in entries:
                     x = col * TILESIZE
                     y = row * TILESIZE
-                    surf = gid_map.get(tile_id)
+                    surf = gid_map.get(tile_id) or self._fallback_tile_surface(sprite_type, row, col, tile_id)
                     if surf is not None:
                         Tile((x, y), groups, sprite_type, surf)
                     else:
@@ -173,12 +210,35 @@ class Level:
             except Exception as e:
                 print(f"[Map] {csv_path} failed: {e}")
 
+        if len(self.ground_sprites) == 0:
+            print("[Map] No visible Game 4 map layer found; using fallback bamboo map.")
+            for row_index, row in enumerate(WORLD_MAP):
+                for col_index, col in enumerate(row):
+                    if col != 'x':
+                        Tile(
+                            (col_index * TILESIZE, row_index * TILESIZE),
+                            [self.ground_sprites],
+                            'grass',
+                            self._fallback_tile_surface('grass', row_index, col_index, 0),
+                        )
+
+        if len(self.object_sprites) == 0:
+            for row_index, row in enumerate(WORLD_MAP):
+                for col_index, col in enumerate(row):
+                    if col == ' ' and row_index % 6 == 0 and col_index % 9 == 0:
+                        Tile(
+                            (col_index * TILESIZE, row_index * TILESIZE),
+                            [self.object_sprites],
+                            'object',
+                            self._fallback_tile_surface('object', row_index, col_index, 0),
+                        )
+
         for row_index, row in enumerate(WORLD_MAP):
             for col_index, col in enumerate(row):
                 x = col_index * TILESIZE
                 y = row_index * TILESIZE
                 if col == 'x' and not floor_blocks_loaded:
-                    Tile((x, y), [self.visible_sprites, self.obstacle_sprites], 'boundary')
+                    Tile((x, y), [self.obstacle_sprites], 'boundary')
                 if col == 'p':
                     self.player = self.character_class(
                         (x, y),
@@ -200,46 +260,91 @@ class Level:
     def create_enemies(self):
         try:
             for data in ENEMY_SPAWN_DATA:
-                combat_kwargs = dict(
-                    health=data.get("health", 60),
-                    exp=data.get("exp", 30),
-                    attack_damage=data.get("attack_damage", 10),
-                    notice_radius=data.get("notice_radius", 200),
-                    attack_radius=data.get("attack_radius", 60),
-                    damage_player=self.damage_player,
-                )
-                if data["patrol_type"] == "random":
-                    enemy = Enemy(
-                        name=data["name"],
-                        start_x=data["spawn"][0],
-                        start_y=data["spawn"][1],
-                        patrol_path=None,
-                        patrol_type="random",
-                        obstacle_sprites=self.obstacle_sprites,
-                        speed=data["speed"],
-                        sprite_name=data["name"].lower().replace(' ', '_'),
-                        **combat_kwargs
-                    )
-                else:
-                    patrol_path = PatrolPath(data["patrol_type"])
-                    for waypoint in data["waypoints"]:
-                        patrol_path.add_waypoint(waypoint[0], waypoint[1], wait_time=1.0)
-                    enemy = Enemy(
-                        name=data["name"],
-                        start_x=data["spawn"][0],
-                        start_y=data["spawn"][1],
-                        patrol_path=patrol_path,
-                        obstacle_sprites=self.obstacle_sprites,
-                        speed=data["speed"],
-                        sprite_name=data["name"].lower().replace(' ', '_'),
-                        **combat_kwargs
-                    )
-                self.enemies.add(enemy)
-                self.visible_sprites.add(enemy)
-                self.obstacle_sprites.add(enemy)
-                self.attackable_sprites.add(enemy)
+                self._spawn_enemy(data)
         except Exception as e:
             print(f"Enemy setup error: {e}")
+
+    def _spawn_enemy(self, data):
+        """Spawn one enemy from ENEMY_SPAWN_DATA and attach it to gameplay groups."""
+        spawn_x, spawn_y = self._safe_enemy_spawn(data)
+        combat_kwargs = dict(
+            health=data.get("health", 60),
+            exp=data.get("exp", 30),
+            attack_damage=data.get("attack_damage", 10),
+            notice_radius=data.get("notice_radius", 200),
+            attack_radius=data.get("attack_radius", 60),
+            damage_player=self.damage_player,
+        )
+        if data["patrol_type"] == "random":
+            enemy = Enemy(
+                name=data["name"],
+                start_x=spawn_x,
+                start_y=spawn_y,
+                patrol_path=None,
+                patrol_type="random",
+                obstacle_sprites=self.obstacle_sprites,
+                speed=data["speed"],
+                sprite_name=data["name"].lower().replace(' ', '_'),
+                **combat_kwargs
+            )
+        else:
+            patrol_path = PatrolPath(data["patrol_type"])
+            for waypoint in data["waypoints"]:
+                patrol_path.add_waypoint(waypoint[0], waypoint[1], wait_time=1.0)
+            enemy = Enemy(
+                name=data["name"],
+                start_x=spawn_x,
+                start_y=spawn_y,
+                patrol_path=patrol_path,
+                obstacle_sprites=self.obstacle_sprites,
+                speed=data["speed"],
+                sprite_name=data["name"].lower().replace(' ', '_'),
+                **combat_kwargs
+            )
+        self.enemies.add(enemy)
+        self.visible_sprites.add(enemy)
+        self.obstacle_sprites.add(enemy)
+        self.attackable_sprites.add(enemy)
+        return enemy
+
+    def _safe_enemy_spawn(self, data):
+        """Use a valid spawn/waypoint that is not directly on top of the player."""
+        spawn_x, spawn_y = data["spawn"]
+        if not hasattr(self, "player"):
+            return spawn_x, spawn_y
+        player_tile = pygame.math.Vector2(self.player.rect.centerx / TILESIZE, self.player.rect.centery / TILESIZE)
+        candidates = [data["spawn"], *data.get("waypoints", [])]
+        for candidate in candidates:
+            pos = pygame.math.Vector2(candidate[0], candidate[1])
+            if pos.distance_to(player_tile) >= 4:
+                return candidate
+        return spawn_x, spawn_y
+
+    def update_enemy_respawns(self):
+        """Respawn defeated enemies after a short delay, away from the player."""
+        now = pygame.time.get_ticks()
+        alive_names = {enemy.name for enemy in self.enemies}
+        for data in ENEMY_SPAWN_DATA:
+            name = data["name"]
+            if name not in alive_names and name not in self.enemy_respawn_queue:
+                self.enemy_respawn_queue[name] = now + self.enemy_respawn_delay_ms
+
+        for name, due_at in list(self.enemy_respawn_queue.items()):
+            if now < due_at:
+                continue
+            data = next((item for item in ENEMY_SPAWN_DATA if item["name"] == name), None)
+            if data is None:
+                self.enemy_respawn_queue.pop(name, None)
+                continue
+            self._spawn_enemy(data)
+            self.enemy_respawn_queue.pop(name, None)
+
+    def clamp_player_to_world(self):
+        """Stop the player from leaving the playable map rectangle."""
+        if not hasattr(self, "player"):
+            return
+        self.player.hitbox.clamp_ip(self.world_rect)
+        self.player.rect.center = self.player.hitbox.center
 
     def create_npcs(self):
         """Spawn NPCs defined in dialog_data.py."""
@@ -281,10 +386,95 @@ class Level:
                 was_alive = enemy.health > 0
                 enemy.get_damage(self.player)
                 if was_alive and enemy.health <= 0:
+                    self.score += 1
                     self.player.exp += enemy.exp
 
     def damage_player(self, amount):
         self.player.take_damage(amount)
+
+    # ------------------------------------------------------------------
+    # Arcade score/timer helpers
+    # ------------------------------------------------------------------
+
+    def elapsed_seconds(self):
+        end_ticks = self._game_over_time if self.game_over else pygame.time.get_ticks()
+        return max(0, (end_ticks - self.start_time) // 1000)
+
+    def remaining_seconds(self):
+        return max(0, self.game_duration_seconds - self.elapsed_seconds())
+
+    def _format_seconds(self, seconds):
+        seconds = max(0, int(seconds))
+        return f"{seconds // 60:02d}:{seconds % 60:02d}"
+
+    def _finish_game(self, outcome):
+        if self.game_over:
+            return
+        self.game_over = True
+        self._game_over_time = pygame.time.get_ticks()
+        self.outcome = outcome
+        self.result = "win" if outcome == "Time Up" and self.score > 0 else "lose"
+        self.dialog_ui = None
+
+    def _check_game_over(self):
+        if self.player.hp <= 0:
+            self._finish_game("Game Over")
+        elif self.remaining_seconds() <= 0:
+            self._finish_game("Time Up")
+
+    def _draw_score_timer_hud(self):
+        text = self._go_font_small.render(
+            f"Score: {self.score}   Time: {self._format_seconds(self.remaining_seconds())}",
+            True,
+            (180, 255, 180),
+        )
+        panel = pygame.Rect(WIDTH - text.get_width() - 32, 10, text.get_width() + 20, text.get_height() + 10)
+        panel_surf = pygame.Surface(panel.size, pygame.SRCALPHA)
+        panel_surf.fill((0, 0, 0, 150))
+        self.display_surface.blit(panel_surf, panel.topleft)
+        pygame.draw.rect(self.display_surface, (120, 230, 140), panel, 2, border_radius=6)
+        self.display_surface.blit(text, (panel.x + 10, panel.y + 5))
+
+    def draw_end_screen(self, events):
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 215))
+        self.display_surface.blit(overlay, (0, 0))
+
+        center_x = WIDTH // 2
+        title_text = "MYSTICAL BAMBOO - RUN COMPLETE" if self.outcome == "Time Up" else "MYSTICAL BAMBOO - GAME OVER"
+        title = self._go_font_large.render(title_text, True, (180, 255, 180))
+        self.display_surface.blit(title, title.get_rect(center=(center_x, HEIGHT // 2 - 175)))
+
+        score_text = self._go_font_med.render(f"Enemies Defeated: {self.score}", True, (255, 235, 140))
+        self.display_surface.blit(score_text, score_text.get_rect(center=(center_x, HEIGHT // 2 - 95)))
+
+        time_text = self._go_font_med.render(f"Time: {self._format_seconds(self.elapsed_seconds())}", True, (180, 220, 255))
+        self.display_surface.blit(time_text, time_text.get_rect(center=(center_x, HEIGHT // 2 - 40)))
+
+        reason_text = self._go_font_small.render(f"Result: {self.outcome}", True, (230, 230, 230))
+        self.display_surface.blit(reason_text, reason_text.get_rect(center=(center_x, HEIGHT // 2 + 20)))
+
+        mouse_pos = pygame.mouse.get_pos()
+        clicked = any(event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 for event in events)
+        key_restart = any(event.type == pygame.KEYDOWN and event.key == pygame.K_r for event in events)
+        key_arcade = any(event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE for event in events)
+
+        for rect, label, action, hover_color, normal_color in [
+            (self._btn_play_again, "Restart", "restart", (55, 150, 75), (30, 95, 50)),
+            (self._btn_arcade, "Return to Arcade", "arcade", (160, 70, 70), (105, 40, 40)),
+        ]:
+            hovered = rect.collidepoint(mouse_pos)
+            pygame.draw.rect(self.display_surface, hover_color if hovered else normal_color, rect, border_radius=8)
+            pygame.draw.rect(self.display_surface, (255, 255, 255), rect, 2, border_radius=8)
+            label_surf = self._go_font_small.render(label, True, (255, 255, 255))
+            self.display_surface.blit(label_surf, label_surf.get_rect(center=rect.center))
+            if clicked and hovered:
+                self._end_action = action
+
+        if key_restart:
+            self._end_action = "restart"
+        elif key_arcade:
+            self._end_action = "arcade"
 
     # ------------------------------------------------------------------
     # Network
@@ -421,6 +611,9 @@ class Level:
         self.display_surface.blit(
             self.font.render(f"XP: {self.player.exp}", True, (255, 215, 0)),
             (10, 100))
+        self.display_surface.blit(
+            self.font.render(f"Score: {self.score}", True, (180, 255, 180)),
+            (10, 125))
         if self.player.equipped_weapon:
             w = self.player.equipped_weapon
             msg   = f"Weapon: {w.name}  (+{w.attack_bonus} atk)"
@@ -429,7 +622,7 @@ class Level:
             msg   = "Weapon: none  (I → select → Equip)"
             color = (150, 150, 150)
         self.display_surface.blit(
-            self.font.render(msg, True, color), (10, 125))
+            self.font.render(msg, True, color), (10, 150))
 
     # ------------------------------------------------------------------
     # Time travel
@@ -564,6 +757,15 @@ class Level:
     # ------------------------------------------------------------------
 
     def run(self, events):
+        if self.game_over:
+            self.visible_sprites.custom_draw(self.player, self.ground_sprites, self.object_sprites)
+            self.draw_names()
+            self.draw_npc_hints()
+            self.draw_status()
+            self._draw_score_timer_hud()
+            self.draw_end_screen(events)
+            return
+
         # --- Dialog takes priority: freeze movement while talking ---
         dialog_active = self.handle_dialog_input(events)
 
@@ -573,6 +775,7 @@ class Level:
             self.handle_enemy_debug_input(events)
             self.update_network()
             self.player.update()
+            self.clamp_player_to_world()
             for op in self.other_players.values():
                 op.update()
             if not self.is_time_traveling:
@@ -580,9 +783,13 @@ class Level:
                     enemy.enemy_update(self.player)
                 self.enemies.update()
                 self.player_attack_logic()
+                self.update_enemy_respawns()
+
+        if not dialog_active:
+            self._check_game_over()
 
         # Always draw the world
-        self.visible_sprites.custom_draw(self.player)
+        self.visible_sprites.custom_draw(self.player, self.ground_sprites, self.object_sprites)
 
         if not dialog_active:
             self.record_player_state()
@@ -592,12 +799,16 @@ class Level:
         self.draw_status()
         self.draw_time_travel_ui()
         self.draw_enemy_debug()
+        self._draw_score_timer_hud()
 
         if self.inventory_ui.active:
             self.inventory_ui.draw(self.display_surface)
 
+        if self.game_over:
+            self.draw_end_screen(events)
+
         # Draw dialog box on top of everything
-        if self.dialog_ui:
+        if self.dialog_ui and not self.game_over:
             self.dialog_ui.draw(self.display_surface)
 
 
@@ -611,13 +822,32 @@ class YSortCameraGroup(pygame.sprite.Group):
         self.half_height = self.display_surface.get_size()[1] // 2
         self.offset = pygame.math.Vector2()
 
-    def custom_draw(self, player):
+    def custom_draw(self, player, ground_sprites=None, object_sprites=None):
         self.offset.x = player.rect.centerx - self.half_width
         self.offset.y = player.rect.centery - self.half_height
-        for sprite in sorted(self.sprites(),
-                              key=lambda s: s.rect.centery):
-            self.display_surface.blit(sprite.image,
-                                      sprite.rect.topleft - self.offset)
+
+        def draw_group(group):
+            if not group:
+                return
+            for sprite in sorted(group.sprites(), key=lambda item: item.rect.centery):
+                self.display_surface.blit(sprite.image, sprite.rect.topleft - self.offset)
+
+        draw_group(ground_sprites)
+        draw_group(object_sprites)
+
+        for sprite in sorted([sprite for sprite in self.sprites() if sprite is not player],
+                             key=lambda item: item.rect.centery):
+            offset_pos = sprite.rect.topleft - self.offset
+            self.display_surface.blit(sprite.image, offset_pos)
+            if getattr(sprite, "max_health", None) is not None:
+                pygame.draw.rect(
+                    self.display_surface,
+                    (255, 80, 100),
+                    pygame.Rect(offset_pos.x, offset_pos.y, sprite.rect.width, sprite.rect.height),
+                    2,
+                )
+
+        self.display_surface.blit(player.image, player.rect.topleft - self.offset)
 
     def offset_from_world(self, world_pos):
         return pygame.math.Vector2(world_pos) - self.offset

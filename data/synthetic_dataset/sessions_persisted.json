@@ -1,16 +1,16 @@
 [
   {
-    "player_id": "kevin",
+    "player_id": "hamza",
     "game_id": "scorpions-arena",
-    "score": 29,
+    "score": 0,
     "outcome": "Time Up",
     "duration_seconds": 89,
-    "timestamp": "2026-04-29T23:59:52.689149+00:00",
+    "timestamp": "2026-04-30T17:07:00.602257+00:00",
     "session_id": "local-scorpions-arena",
     "metadata": {
-      "fruits_collected": 13,
-      "golden_fruits_collected": 4,
-      "health_remaining": 80,
+      "fruits_collected": 0,
+      "golden_fruits_collected": 0,
+      "health_remaining": 34,
       "hazard_hits": 0,
       "reason": "Time expired"
     }

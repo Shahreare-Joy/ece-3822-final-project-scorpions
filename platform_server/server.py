@@ -93,7 +93,16 @@ class PlatformServer:
 
         # extract key datasets
         players = records.get("players", [])
-        sessions = records.get("sessions", [])
+        sessions = [
+            row
+            for row in records.get("sessions", [])
+            if self._canonical_game_id(str(row.get("game_id", ""))) not in {
+                "scorpions-arena",
+                "sky-raiders",
+                "turbo-sprint",
+                "crystal-run",
+            }
+        ]
         games = records.get("game_catalog", [])
 
         # load accounts from player data
@@ -115,6 +124,15 @@ class PlatformServer:
             "errors": errors,
             "counts": {key: len(value) for key, value in records.items()}
         }
+
+    @staticmethod
+    def _canonical_game_id(game_id: str) -> str:
+        return {
+            "game_1": "scorpions-arena",
+            "game_2": "sky-raiders",
+            "game_3": "turbo-sprint",
+            "game_4": "crystal-run",
+        }.get(game_id, game_id)
 
     def start(self) -> dict[str, object]:
         '''start platform server and initialize services'''
@@ -207,7 +225,8 @@ class PlatformServer:
         if action in {"session_end", "disconnect"}:
             session_id = str(request.get("session_id", ""))
             closed = self.sessions.end_session(session_id)
-            self.chat.close_session(session_id)
+            # Keep bounded chat history available for Profile/History previews
+            # after a game exits. Active session cleanup still happens above.
             return {"ok": closed, "message": "Session cleaned up." if closed else "Session was not active."}
         if action == "submit_result":
             payload = request.get("payload", request)

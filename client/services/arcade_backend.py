@@ -96,7 +96,7 @@ class MockArcadeBackend:
         self.synthetic_catalog_loaded = False
         self.synthetic_sessions_loaded = False
         self.games = {game.game_id: game for game in MOCK_GAMES}
-        self.home_sessions = list(MOCK_SESSIONS)
+        self.home_sessions = [session for session in MOCK_SESSIONS if session.game_id not in NEW_TEAM_GAME_IDS]
         self.sessions = list(self.home_sessions)
         self.leaderboard_entries = [entry for entry in MOCK_LEADERBOARD if entry.game_id not in NEW_TEAM_GAME_IDS]
         self.chat_messages = list(MOCK_CHAT)
@@ -343,6 +343,11 @@ class MockArcadeBackend:
         self.ensure_personalization_dataset_loaded()
         return self.history_service.get_sessions(username, game_id, limit)
 
+    def get_live_player_sessions(self, username: str, limit: int = 8) -> list[GameSession]:
+        """Return current in-memory player sessions without waiting on preload."""
+
+        return self.history_service.get_sessions(username=username, limit=limit)
+
     def search_players(self, query: str, limit: int = 25) -> list[Player]:
         self.ensure_full_player_dataset_loaded()
         return self.search_service.search_players(query, limit)
@@ -364,6 +369,38 @@ class MockArcadeBackend:
         message = self.chat_service.add_message(session_id, sender, text)
         self._invalidate_chat_preview_cache(message.session_id)
         return message
+
+    def get_player_chat_messages(self, username: str, limit: int = 20) -> list[ChatMessage]:
+        names = self._chat_sender_names(username)
+        messages: list[ChatMessage] = []
+        seen: set[tuple[str, str, str, str]] = set()
+        for name in names:
+            for message in self.chat_service.get_messages_by_sender(name, limit):
+                key = (message.session_id, message.sender, message.timestamp, message.text)
+                if key not in seen:
+                    messages.append(message)
+                    seen.add(key)
+        return messages[-max(1, int(limit)) :]
+
+    def get_player_chat_count(self, username: str) -> int:
+        names = self._chat_sender_names(username)
+        messages: set[tuple[str, str, str, str]] = set()
+        for name in names:
+            for message in self.chat_service.get_messages_by_sender(name, 500):
+                messages.add((message.session_id, message.sender, message.timestamp, message.text))
+        return len(messages)
+
+    def get_profile_summary(self, player: Player | None) -> dict[str, object]:
+        if player is None:
+            return {}
+        return self._build_profile_summary(player)
+
+    def _chat_sender_names(self, username: str) -> list[str]:
+        names = [username]
+        player = self.get_player(username)
+        if player is not None and player.display_name not in names:
+            names.append(player.display_name)
+        return names
 
     def launch_game(self, player: Player | None, game: Game) -> str:
         if not game.playable:
@@ -395,7 +432,7 @@ class MockArcadeBackend:
             # The local game subprocess has ended, so release the session chat
             # buffer/file used by the arcade bridge. A future C++ relay should
             # perform the matching network unsubscribe here.
-            self.chat_service.close_session(session_id)
+            self.chat_service.close_session(session_id, remove_disk_file=False)
             self._invalidate_chat_preview_cache(session_id)
 
     def _invalidate_chat_preview_cache(self, session_id: str | None = None) -> None:
@@ -471,6 +508,39 @@ class MockArcadeBackend:
             deduped.append((title, unique_games))
         return deduped
 
+    def _build_profile_summary(self, player: Player) -> dict[str, object]:
+        sessions = self.history_service.get_sessions(username=player.username, limit=500)
+        total_sessions = len(sessions)
+        total_score = sum(session.score for session in sessions)
+        best_score = max((session.score for session in sessions), default=0)
+        average_score = round(total_score / total_sessions, 1) if total_sessions else 0.0
+        total_play_time = sum(session.duration_minutes for session in sessions)
+        game_counts: dict[str, int] = {}
+        genre_counts: dict[str, int] = {}
+        for session in sessions:
+            game_counts[session.game_id] = game_counts.get(session.game_id, 0) + 1
+            game = self.get_game(session.game_id)
+            if game is not None:
+                genre_counts[game.genre] = genre_counts.get(game.genre, 0) + 1
+        favorite_game_id = max(game_counts, key=game_counts.get) if game_counts else ""
+        favorite_game = self.get_game(favorite_game_id) if favorite_game_id else None
+        favorite_genre = max(genre_counts, key=genre_counts.get) if genre_counts else player.favorite_genre
+        return {
+            "games_played": total_sessions,
+            "total_sessions": total_sessions,
+            "wins": player.total_wins,
+            "win_rate": 0.0 if total_sessions == 0 else round((player.total_wins / total_sessions) * 100, 1),
+            "total_score": total_score,
+            "best_score": best_score,
+            "average_score": average_score,
+            "total_play_time": total_play_time,
+            "favorite_game": favorite_game.title if favorite_game else "No games yet",
+            "favorite_genre": favorite_genre,
+            "level": player.level,
+            "messages_sent": self.get_player_chat_count(player.username),
+            "source": "live session and chat indexes",
+        }
+
     def _record_completed_session(self, player: Player | None, game: Game, session_id: str, payload: dict[str, Any] | None) -> None:
         """Record a local finished game so recent/recommended rows refresh."""
 
@@ -544,13 +614,13 @@ class MockArcadeBackend:
         username = player.username.strip().lower()
         try:
             self.ensure_synthetic_catalog_loaded()
-            profile_summary = self.profile_service.aggregate_profile_stats(username)
 
             # This is the one heavier step. It builds the session/history and
             # recommendation indexes once in the background instead of doing it
             # during the first Profile or History draw call.
             self.ensure_personalization_dataset_loaded()
 
+            profile_summary = self._build_profile_summary(player)
             player_sessions = self.history_service.get_sessions(username=username, limit=12)
             history_sessions = self.history_service.get_sessions(limit=80)
             home_rows = self.catalog_service.get_home_rows(player, self.recommendation_service)
@@ -559,7 +629,7 @@ class MockArcadeBackend:
             recommended = self.recommendation_service.recommended(player, limit=5)
             catalog_rows = self.catalog_service.get_games()
             leaderboard_preview = {
-                game.game_id: self.leaderboard_service.get_leaderboard(game.game_id, limit=5)
+                game.game_id: self.get_leaderboard(game.game_id, limit=5)
                 for game in catalog_rows
                 if game.playable
             }
@@ -820,6 +890,8 @@ class MockArcadeBackend:
                 continue
             game_id = TEAM_GAME_ID_ALIASES.get(str(record.get("game_id", "")).strip(), str(record.get("game_id", "")).strip())
             if game_id not in self.games:
+                continue
+            if game_id in NEW_TEAM_GAME_IDS:
                 continue
             duration_seconds = int(record.get("duration_seconds", 0) or 0)
             sessions.append(

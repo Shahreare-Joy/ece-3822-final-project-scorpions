@@ -203,21 +203,22 @@ class SpriteLoader:
     @staticmethod
     def _create_single_default_sprite(direction, color=(100, 100, 100)):
         """Create a single default sprite with directional indicator."""
-        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
-        sprite.fill(color)
+        sprite = pygame.Surface((34, 34), pygame.SRCALPHA)
+        pygame.draw.rect(sprite, (20, 20, 20), sprite.get_rect(), border_radius=6)
+        pygame.draw.rect(sprite, color, pygame.Rect(3, 3, 28, 28), border_radius=5)
         
         # Add directional arrow
         if direction == 'up':
-            pygame.draw.polygon(sprite, (255, 255, 255), [(16, 5), (10, 15), (22, 15)])
+            pygame.draw.polygon(sprite, (255, 255, 255), [(17, 6), (11, 16), (23, 16)])
         elif direction == 'down':
-            pygame.draw.polygon(sprite, (255, 255, 255), [(16, 27), (10, 17), (22, 17)])
+            pygame.draw.polygon(sprite, (255, 255, 255), [(17, 28), (11, 18), (23, 18)])
         elif direction == 'left':
-            pygame.draw.polygon(sprite, (255, 255, 255), [(5, 16), (15, 10), (15, 22)])
+            pygame.draw.polygon(sprite, (255, 255, 255), [(6, 17), (16, 11), (16, 23)])
         elif direction == 'right':
-            pygame.draw.polygon(sprite, (255, 255, 255), [(27, 16), (17, 10), (17, 22)])
+            pygame.draw.polygon(sprite, (255, 255, 255), [(28, 17), (18, 11), (18, 23)])
         
-        # Add border
-        pygame.draw.rect(sprite, (255, 255, 255), sprite.get_rect(), 2)
+        # Add a high-contrast outline so missing art still reads as an enemy.
+        pygame.draw.rect(sprite, (255, 240, 120), sprite.get_rect(), 2, border_radius=6)
         
         return sprite
     

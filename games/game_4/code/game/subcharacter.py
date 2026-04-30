@@ -9,6 +9,11 @@ define each archetype's stats plus the sprite assets they should load.
 from __future__ import annotations
 
 import pygame
+<<<<<<< HEAD
+=======
+from settings import *
+from character import Character as BaseCharacter
+>>>>>>> feature/chat-system
 
 from character import Character
 from sprite_loader import SpriteLoader
@@ -17,6 +22,7 @@ from sprite_loader import SpriteLoader
 class Game4Character(Character):
     """Shared setup for Game 4's playable characters."""
 
+<<<<<<< HEAD
     SPRITE_KEY = ""
     DISPLAY_NAME = "Unknown"
     DESCRIPTION = "A mysterious character."
@@ -78,10 +84,28 @@ class BambooVanguard(Game4Character):
     ATTACK = 50
     DEFENSE = 100
     SPEED = 50
+=======
+class BambooVanguard(BaseCharacter):
+    def __init__(self, pos, groups, obstacle_sprites, name="Player", is_local=False, player_id=None):
+        super().__init__(pos, groups, obstacle_sprites, player_id=player_id or name, is_local=is_local)
+        self.is_local = is_local
+        self.player_name = name or str(player_id or "Player")
+        self.name = self.player_name
+
+        self.character_name = "Bamboo Vanguard"
+        self.sprite_name = "bamboovanguard"
+        self.hp = 70 
+        self.max_hp = 70
+        self.attack = 50
+        self.defense = 100
+        self.speed = 5
+        self.import_player_assets()
+>>>>>>> feature/chat-system
 
     def special_ability(self):
         self.heal(self.max_hp // 10)
 
+<<<<<<< HEAD
 
 class SilkbladeDuelist(Game4Character):
     SPRITE_KEY = "silkbladeduelist"
@@ -107,3 +131,121 @@ class Monk(Game4Character):
 
     def special_ability(self):
         self.defense += 10
+=======
+    @staticmethod
+    def get_display_name():
+        return "Bamboo Vanguard"
+         
+    @staticmethod
+    def get_description():
+        return "A sturdy vanguard with high defense and healing abilities."
+    
+    @staticmethod
+    def get_preview_image():
+        return '../../graphics/characters/bamboovanguard.png'
+
+
+class SilkbladeDuelist(BaseCharacter):
+    def __init__(self, pos, groups, obstacle_sprites, name="Player", is_local=False, player_id=None):
+        super().__init__(pos, groups, obstacle_sprites, player_id=player_id or name, is_local=is_local)
+        self.is_local = is_local
+        self.player_name = name or str(player_id or "Player")
+        self.name = self.player_name
+
+        self.character_name = "Silkblade Duelist"
+        self.sprite_name = "silkbladeduelist"
+        self.hp = 70    
+        self.max_hp = 70
+        self.attack = 100
+        self.defense = 40
+        self.speed = 7
+        self.import_player_assets()
+
+    def special_ability(self):
+        self.dodge_chance = 1.0  
+
+    @staticmethod
+    def get_display_name():
+        return "Silkblade Duelist"
+
+    @staticmethod
+    def get_description():
+        return "A swift and agile duelist with high attack power."
+
+    @staticmethod
+    def get_preview_image():
+        return '../../graphics/characters/silkbladeduelist.png'
+
+
+class Monk(BaseCharacter):
+    def __init__(self, pos, groups, obstacle_sprites, name="Player", is_local=False, player_id=None):
+        super().__init__(pos, groups, obstacle_sprites, player_id=player_id or name, is_local=is_local)
+        self.is_local = is_local
+        self.player_name = name or str(player_id or "Player")
+        self.name = self.player_name
+
+        self.character_name = "Monk"
+        self.sprite_name = "monk"
+        self.hp = 100    
+        self.max_hp = 100
+        self.attack = 50
+        self.defense = 75
+        self.speed = 4
+        self.import_player_assets()
+
+    def special_ability(self):
+        self.defense += 10
+
+    @staticmethod
+    def get_display_name():
+        return "Monk"
+    
+    @staticmethod
+    def get_description():
+        return "A monk who meditates and gains spiritual insight."
+    
+    @staticmethod
+    def get_preview_image():
+        return  '../../graphics/characters/monk.png'
+    
+
+class WanderingTraveler(BaseCharacter):
+    def __init__(self, pos, groups, obstacle_sprites, name="Player", is_local=False, player_id=None):
+        super().__init__(pos, groups, obstacle_sprites, player_id=player_id or name, is_local=is_local)
+        self.is_local = is_local
+        self.player_name = name or str(player_id or "Player")
+        self.name = self.player_name
+
+        self.character_name = "Wandering Traveler"
+        self.sprite_name = "wanderingtraveler"
+        self.hp = 70
+        self.max_hp = 70
+        self.attack = 70
+        self.defense = 70
+        self.speed = 6
+        self.import_player_assets()
+
+    def special_ability(self):
+        self.all_stats_boost = True 
+    
+    @staticmethod
+    def get_display_name():
+        return "Wandering Traveler"
+    
+    @staticmethod
+    def get_description():
+        return "A wandering traveler with balanced stats and a mysterious past."
+    
+    @staticmethod
+    def get_preview_image():
+        return '../../graphics/characters/wanderingtraveler.png'
+
+
+# ============================================
+# CHARACTER REGISTRY (Auto-discovery)
+# ============================================
+
+def get_all_character_classes():
+    """Return list of all character classes"""
+    return [BambooVanguard, SilkbladeDuelist, Monk, WanderingTraveler]
+>>>>>>> feature/chat-system

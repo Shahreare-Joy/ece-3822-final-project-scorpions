@@ -69,7 +69,10 @@ class PatrolPath:
             if self.patrol_type == "circular":
                 self.tail.next = self.head
                 self.head.prev = self.tail
+<<<<<<< HEAD
+=======
 
+>>>>>>> main
         self.size += 1
 
 

@@ -17,7 +17,11 @@ MOCK_GAMES: list[Game] = [
     # Team games 2-3 are connected through the same games/game_N/code/game/main.py convention.
     game("sky-raiders", "Escape the City", Genre.ACTION.value, "Team Game 2. A high-pressure city escape entry launched from games/game_2/code/game/main.py with its uploaded assets preserved.", "Scorpions Team - Game 2", 1248, 613028, "Playable now", True, (78, 132, 224), ["team-game", "action", "escape"], 2023, "Updated 2 days ago", "City escape sessions are open.", True, "client/assets/thumbnails/escape_the_city.png", "client/assets/screenshots/escape_the_city.png"),
     game("turbo-sprint", "Forgotten", Genre.ADVENTURE.value, "Team Game 3. A mystery-adventure entry launched from games/game_3/code/game/main.py with its uploaded assets preserved.", "Scorpions Team - Game 3", 741, 421776, "Playable now", True, (224, 116, 72), ["team-game", "adventure", "mystery"], 2022, "Updated last week", "Mystery adventure sessions are open.", True, "client/assets/thumbnails/forgotten.png", "client/assets/screenshots/forgotten.png"),
+<<<<<<< HEAD
+    game("crystal-run", "Mystical Bamboo", Genre.PLATFORMER.value, "Team Game 4. A bamboo-themed action RPG launched from games/game_4/code/game/main.py with uploaded assets preserved.", "Scorpions Team - Game 4", 398, 289410, "Playable now", True, (92, 166, 96), ["team-game", "platformer", "bamboo"], 2024, "Updated today", "Mystical Bamboo sessions are open.", True, "client/assets/thumbnails/mystical_bamboo.png", "client/assets/screenshots/mystical_bamboo.png"),
+=======
     game("crystal-run", "Mystical Bamboo", Genre.PLATFORMER.value, "Team Game 4. A polished bamboo-themed platformer entry prepared for games/game_4/code/game/main.py. It appears fully in the arcade while launch integration is still pending.", "Scorpions Team - Game 4", 398, 289410, "Pending integration", True, (210, 170, 76), ["team-game", "platformer", "bamboo"], 2024, "Updated 4 days ago", "Team game entry ready for teammate folder connection.", True),
+>>>>>>> main
     # TEMP TEST GAME - SAFE TO DELETE LATER:
     # Remove this one mock catalog row and the "snake-test" launch registry
     # block when the team no longer needs a simple arcade-flow test game.

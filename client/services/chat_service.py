@@ -150,6 +150,31 @@ class ChatService:
     def get_chat_preview(self, session_id: str = "global", limit: int = 3) -> list[ChatMessage]:
         return self.get_recent_messages(session_id, limit)
 
+    def get_messages_by_sender(self, sender: str, limit: int = 25) -> list[ChatMessage]:
+        """Return recent messages sent by one player across known sessions."""
+
+        safe_sender = sender.strip().lower()
+        if not safe_sender:
+            return []
+        messages = [
+            message
+            for message in self._all_known_messages()
+            if message.sender.strip().lower() == safe_sender
+        ]
+        return messages[-max(1, int(limit)) :]
+
+    def count_messages_by_sender(self, sender: str) -> int:
+        """Count stored messages sent by one player without exposing buffer size."""
+
+        safe_sender = sender.strip().lower()
+        if not safe_sender:
+            return 0
+        return sum(
+            1
+            for message in self._all_known_messages()
+            if message.sender.strip().lower() == safe_sender
+        )
+
     def close_session(self, session_id: str, remove_disk_file: bool = True) -> None:
         """Drop local chat state when a player leaves a game session.
 
@@ -252,6 +277,36 @@ class ChatService:
             if isinstance(row, dict):
                 chat.add_message(self._message_from_record(row, session_id))
         self.session_chats[session_id] = chat
+
+    def _all_known_messages(self) -> list[ChatMessage]:
+        messages: list[ChatMessage] = []
+        seen: set[tuple[str, str, str, str]] = set()
+
+        for chat in self.session_chats.values():
+            for message in chat.recent_messages(self.capacity):
+                key = (message.session_id, message.sender, message.timestamp, message.text)
+                if key not in seen:
+                    messages.append(message)
+                    seen.add(key)
+
+        if self.storage_dir is not None and self.storage_dir.exists():
+            for path in self.storage_dir.glob("*.json"):
+                try:
+                    rows = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if not isinstance(rows, list):
+                    continue
+                fallback_session_id = path.stem
+                for row in rows[-self.capacity :]:
+                    if not isinstance(row, dict):
+                        continue
+                    message = self._message_from_record(row, fallback_session_id)
+                    key = (message.session_id, message.sender, message.timestamp, message.text)
+                    if key not in seen:
+                        messages.append(message)
+                        seen.add(key)
+        return messages
 
     def _save_session_to_disk(self, session_id: str) -> None:
         path = self._session_path(session_id)

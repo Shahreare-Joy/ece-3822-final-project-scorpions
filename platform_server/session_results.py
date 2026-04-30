@@ -69,12 +69,14 @@ class SessionResult:
 
         # TODO (DONE)(VALIDATION): Coerce the common payload formats used by the
         # launcher and reject invalid values later in ``validate_result``.
+        raw_outcome = str(payload.get("outcome") or payload.get("result") or "Finished")
+        outcome = {"win": "Win", "lose": "Loss"}.get(raw_outcome.lower(), raw_outcome)
 
         return cls(
             player_id=str(payload.get("player_id") or payload.get("username") or "guest"),
             game_id=str(payload.get("game_id", "")),
             score=int(payload.get("score", 0)),
-            outcome=str(payload.get("outcome") or payload.get("result") or "Finished"),
+            outcome=outcome,
             duration_seconds=int(payload.get("duration_seconds") or payload.get("duration") or 0),
             timestamp=str(payload.get("timestamp") or datetime.now(timezone.utc).isoformat()),
             session_id=str(payload.get("session_id", "")),

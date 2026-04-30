@@ -8,6 +8,11 @@ import pygame
 import sys
 import argparse
 import os
+<<<<<<< HEAD
+import json
+from datetime import datetime, timezone
+=======
+>>>>>>> main
 from settings import *
 from level import Level
 from subcharacter import get_all_character_classes
@@ -163,6 +168,10 @@ class Game:
         self.selected_character = None
         self.level = None
         self.running = True
+<<<<<<< HEAD
+        self.result_written = False
+=======
+>>>>>>> main
         self.chat_overlay = self.create_chat_overlay()
 
     def create_chat_overlay(self):
@@ -177,11 +186,60 @@ class Game:
             return None
         if os.environ.get("SCORPIONS_CHAT_ENABLED") != "1":
             return None
+<<<<<<< HEAD
+        session_id = os.environ.get("SCORPIONS_SESSION_ID", "escape-the-city-local")
+        sender = os.environ.get("SCORPIONS_DISPLAY_NAME") or self.player_name
+        title = os.environ.get("SCORPIONS_CHAT_TITLE", "Escape the City Chat")
+        storage_dir = os.environ.get("SCORPIONS_CHAT_DIR", "")
+        return ChatOverlay(ChatOverlayConfig(session_id=session_id, sender_name=sender, title=title, storage_dir=storage_dir))
+
+    def write_session_result(self, outcome="Quit"):
+        """Write kill-score result for the arcade launcher."""
+        if self.result_written:
+            return
+        result_path = os.environ.get("SCORPIONS_RESULT_PATH", "").strip()
+        if not result_path or self.level is None:
+            return
+        duration_seconds = 0
+        if getattr(self.level, "game_over", False):
+            duration_seconds = max(0, (self.level._game_over_time - self.level.start_time) // 1000)
+        else:
+            duration_seconds = max(0, (pygame.time.get_ticks() - self.level.start_time) // 1000)
+        payload = {
+            "player_id": self.player_name,
+            "game_id": os.environ.get("SCORPIONS_GAME_ID", "sky-raiders"),
+            "session_id": os.environ.get("SCORPIONS_SESSION_ID", ""),
+            "score": int(getattr(self.level, "score", 0)),
+            "outcome": outcome,
+            "result": "win" if outcome in {"Win", "Complete", "Finished", "Time Up"} else "lose",
+            "duration_seconds": int(duration_seconds),
+            "duration": int(duration_seconds),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "metadata": {"score_type": "kills"},
+        }
+        try:
+            with open(result_path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle)
+            self.result_written = True
+            print(f"[RESULT] Escape the City kills submitted locally: {payload['score']}")
+        except OSError as exc:
+            print(f"[RESULT] Could not write Escape the City result: {exc}")
+
+    def cleanup_and_exit(self, outcome="Quit"):
+        self.write_session_result(outcome)
+        if self.chat_overlay:
+            self.chat_overlay.close()
+        if self.level is not None:
+            self.level.network.disconnect()
+        pygame.quit()
+        sys.exit()
+=======
         session_id = os.environ.get("SCORPIONS_SESSION_ID", "fruit-drop-rush-local")
         sender = os.environ.get("SCORPIONS_DISPLAY_NAME") or self.player_name
         title = os.environ.get("SCORPIONS_CHAT_TITLE", "Fruit Drop Rush Chat")
         storage_dir = os.environ.get("SCORPIONS_CHAT_DIR", "")
         return ChatOverlay(ChatOverlayConfig(session_id=session_id, sender_name=sender, title=title, storage_dir=storage_dir))
+>>>>>>> main
 
     def character_select(self):
         """Character selection screen"""
@@ -286,6 +344,37 @@ class Game:
 
         if not self.running or self.selected_character is None:
             return
+<<<<<<< HEAD
+
+        while self.running:
+            # Build a fresh level each run
+            self.result_written = False
+            self.level = Level(
+                self.player_name,
+                self.selected_character,
+                self.server_host,
+                self.server_port,
+                self.serializer
+            )
+
+            # Inner game loop — exits when player dies and picks an end-screen action
+            while self.running:
+                events = []
+                for event in pygame.event.get():
+                    if self.chat_overlay and self.chat_overlay.handle_event(event):
+                        continue
+                    events.append(event)
+                    if event.type == pygame.QUIT:
+                        self.cleanup_and_exit("Quit")
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            self.cleanup_and_exit("Quit")
+
+                self.screen.fill('black')
+                self.level.run(events)
+                if self.level.game_over:
+                    self.write_session_result("Game Over")
+=======
 
         while self.running:
             # Build a fresh level each run
@@ -316,6 +405,7 @@ class Game:
 
                 self.screen.fill('black')
                 self.level.run(events)
+>>>>>>> main
                 if self.chat_overlay:
                     self.chat_overlay.update(self.clock.get_time())
                     self.chat_overlay.draw(self.screen)
@@ -328,7 +418,13 @@ class Game:
                     # Same character, fresh level
                     break
                 elif action == 'arcade':
+<<<<<<< HEAD
+                    if os.environ.get("client_LAUNCH") == "1":
+                        self.cleanup_and_exit("Game Over")
+                    # Back to character select when run directly
+=======
                     # Back to character select
+>>>>>>> main
                     self.selected_character = None
                     break
 

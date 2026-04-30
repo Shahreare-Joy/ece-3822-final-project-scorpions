@@ -18,11 +18,11 @@ class Stack:
     Think of it like a stack of plates - you add to the top and remove from the top.
     """
     
-    def __init__(self):
+    def __init__(self, capacity=180):
         """
         Initialize an empty stack.
         """
-        self.items = ArrayList()  # Use ArrayList to store stack items
+        self.items = ArrayList(capacity)  # Use ArrayList to store stack items
     
     def push(self, item):
         """
@@ -32,6 +32,26 @@ class Stack:
             item: The item to add to the stack
         """
         self.items.append(item) 
+
+    def is_full(self):
+        """
+        Check if the backing array has reached capacity.
+
+        The time-travel feature uses this to behave like bounded history
+        instead of crashing when the fixed custom array is full.
+        """
+        return self.items.size >= self.items.capacity
+
+    def pop_oldest(self):
+        """
+        Remove and return the oldest item in the stack.
+
+        This keeps the newest rewind states while preserving the custom
+        Stack/ArrayList requirement.
+        """
+        if self.is_empty():
+            return None
+        return self.items.pop(0)
     
     def pop(self):
         """

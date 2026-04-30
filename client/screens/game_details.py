@@ -74,28 +74,29 @@ class GameDetailsScreen(BaseScreen):
         draw_panel(self.app.screen, board)
         draw_panel(self.app.screen, activity)
         draw_text(self.app.screen, "Leaderboard Preview", self.app.fonts.body, Palette.TEXT, board.x + 16, board.y + 14)
-        leaderboard = self.app.backend.get_cached_leaderboard_preview(game.game_id, limit=3)
-        if leaderboard is None and not self.app.backend.is_preload_loading(self.app.current_player):
-            leaderboard = self.app.backend.get_leaderboard(game.game_id, 3)
+        leaderboard = self.app.backend.get_leaderboard(game.game_id, 3)
         if leaderboard is None:
             draw_text(self.app.screen, "Loading leaderboard...", self.app.fonts.small, Palette.MUTED, board.x + 18, board.y + 54)
+        if not leaderboard:
+            draw_wrapped(
+                self.app.screen,
+                "No scores yet. Play this game to set the first score.",
+                self.app.fonts.small,
+                Palette.MUTED,
+                pygame.Rect(board.x + 18, board.y + 54, board.width - 36, 60),
+                max_lines=2,
+            )
         for index, entry in enumerate(leaderboard or []):
             row = pygame.Rect(board.x + 14, board.y + 48 + index * 24, board.width - 28, 22)
             draw_list_row(self.app.screen, row, self.app.fonts, f"#{entry.rank} {entry.display_name}", f"{entry.score:,} pts", right_color=Palette.ACCENT)
         draw_text(self.app.screen, "Recent Activity / Sessions", self.app.fonts.body, Palette.TEXT, activity.x + 16, activity.y + 14)
-        cached_history = self.app.backend.get_cached_history_sessions(limit=80)
-        sessions = [session for session in cached_history or [] if session.game_id == game.game_id][:3]
-        loading_activity = False
-        if cached_history is None and not self.app.backend.is_preload_loading(self.app.current_player):
-            sessions = self.app.backend.get_sessions(game_id=game.game_id, limit=3)
-        elif cached_history is None:
-            loading_activity = True
-            draw_text(self.app.screen, "Loading recent activity...", self.app.fonts.small, Palette.MUTED, activity.x + 18, activity.y + 54)
-        if not sessions and not loading_activity:
-            draw_wrapped(self.app.screen, "No recent public sessions yet. Check back after this game receives live match activity.", self.app.fonts.small, Palette.MUTED, pygame.Rect(activity.x + 18, activity.y + 54, activity.width - 36, 80))
+        sessions = self.app.backend.get_sessions(game_id=game.game_id, limit=3)
+        if not sessions:
+            draw_wrapped(self.app.screen, "No recent real sessions yet. Play this game to create the first activity row.", self.app.fonts.small, Palette.MUTED, pygame.Rect(activity.x + 18, activity.y + 54, activity.width - 36, 80))
         for index, session in enumerate(sessions):
             player = self.app.backend.get_player(session.username)
             name = player.display_name if player else session.username
             row = pygame.Rect(activity.x + 14, activity.y + 46 + index * 24, activity.width - 28, 24)
-            draw_list_row(self.app.screen, row, self.app.fonts, name, f"{session.result} {session.score:,} pts", right_color=Palette.ACCENT)
+            detail = f"Score: {session.score:,} | {session.duration_minutes} min | {session.result}"
+            draw_list_row(self.app.screen, row, self.app.fonts, name, detail, right_color=Palette.ACCENT)
         self.draw_message(724)
