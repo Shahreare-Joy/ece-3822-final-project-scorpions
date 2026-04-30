@@ -50,25 +50,29 @@ class PatrolPath:
             y (float): Y coordinate
             wait_time (float): How long to wait at this waypoint
         """
-        # TODO: Create a new Waypoint node
-        # TODO: If the list is empty, set head, tail, and current to the new node
-        # TODO: Otherwise, link the new node after the current tail
-        # TODO: For "back_and_forth" and "circular", set prev pointer on the new node
-        # TODO: Update tail to the new node
-        # TODO: For "circular", close the loop (tail.next = head, head.prev = tail)
-        # TODO: Increment size
+      
         new_waypoint = Waypoint(x, y, wait_time)
+
         if self.is_empty():
             self.head = new_waypoint
             self.tail = new_waypoint
             self.current = new_waypoint
         else:
-            self.tail.next = new_waypoint
-            new_waypoint.prev = self.tail
+            old_tail = self.tail
+            old_tail.next = new_waypoint
+
+            if self.patrol_type in ("back_and_forth", "circular"):
+                new_waypoint.prev = old_tail
+
             self.tail = new_waypoint
+
             if self.patrol_type == "circular":
                 self.tail.next = self.head
                 self.head.prev = self.tail
+<<<<<<< HEAD
+=======
+
+>>>>>>> main
         self.size += 1
 
 
@@ -79,13 +83,7 @@ class PatrolPath:
         Returns:
             Waypoint: The next waypoint to move toward, or None if patrol is complete
         """
-        # TODO: If empty or current is None, return None
-        # TODO: Save current as result to return
-        # TODO: For "one_way": advance current to current.next (becomes None at end)
-        # TODO: For "circular": advance current to current.next (wraps around)
-        # TODO: For "back_and_forth": advance forward or backward based on direction,
-        #       reversing direction when hitting the end or start
-        # TODO: Return result
+
         if self.is_empty() or self.current is None:
             return None
         result = self.current
