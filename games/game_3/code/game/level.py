@@ -58,6 +58,9 @@ class Level:
         # Inventory UI
         self.inventory_ui = InventoryUI(self.player.inventory)
         self.inventory_ui.character = self.player   # equip-button needs this
+        self.game_over = False
+        self.game_over_font = pygame.font.Font(None, 96)
+        self.game_over_small_font = pygame.font.Font(None, 32)
  
         # Add starting items for testing
         self.add_starting_items()
@@ -172,6 +175,10 @@ class Level:
                 for local_id, surf in tiles.items():
                     global_id = firstgid + local_id
                     combined[global_id] = surf
+                    # The provided CSV exports use zero-based gids, while TMX
+                    # stores one-based gids. Supporting both keeps old and new
+                    # maps visible.
+                    combined.setdefault(global_id - 1, surf)
  
                 print(f"[Map] Tileset '{os.path.basename(img_path)}': "
                       f"{len(tiles)} tiles, firstgid={firstgid}")
@@ -210,6 +217,7 @@ class Level:
             print(f"[Map] Could not read player spawn from TMX: {e}")
         return None
  
+<<<<<<< HEAD
     def _load_tmx_layers(self, tmx_path):
         """Read tile layers from the group's original Tiled town map."""
         import xml.etree.ElementTree as ET
@@ -259,6 +267,59 @@ class Level:
         for tile_x, tile_y in getattr(self, "walkable_tiles", []):
             if player_tile is not None and min_player_distance:
                 if pygame.math.Vector2(tile_x, tile_y).distance_to(player_tile) < min_player_distance:
+=======
+    def create_map(self):
+        """Create the game map and player.
+ 
+        Loads three CSV layers via load_layer() (which uses the student's
+        SparseMatrix when implemented, plain dict otherwise):
+          - map_FloorBlocks.csv  → invisible boundary / collision tiles
+          - map_Grass.csv        → visible floor/ground tiles
+          - map_Objects.csv      → visible tall objects (also collision)
+ 
+        Tilesets are loaded from graphics/tilemap/ by parsing the exported
+        Map.tmx and any referenced .tsx files, so every tile image in the
+        project is automatically found and given its correct global tile ID.
+        Falls back to ground.png (single-sheet) if no TMX is present.
+ 
+        Player spawn is read from a 'Player' object in the TMX object layer
+        first; if absent, falls back to the 'p' marker in WORLD_MAP.
+ 
+        Falls back to the WORLD_MAP 'x' markers for boundary tiles if
+        map_FloorBlocks.csv is empty (i.e. no Tiled map yet).
+        """
+        import os
+ 
+        tmx_dir = os.path.join('..', '..', 'graphics', 'tilemap')
+ 
+        # --- Build combined tile_id -> Surface from all tilesets in the TMX ---
+        all_tiles = self._load_tilesets_from_tmx(tmx_dir)
+ 
+        # Fallback: if TMX parsing found nothing, try the legacy single sheet
+        if not all_tiles:
+            all_tiles = self._load_tileset(os.path.join(tmx_dir, 'ground.png'))
+            if all_tiles:
+                print("[Map] Using legacy ground.png tileset")
+ 
+        # --- Layer definitions ---
+        # (csv_path, sprite_type, groups)
+        # All layers share the same combined tileset dict so any tile ID works.
+        LAYERS = [
+            ('map/map_FloorBlocks.csv', 'boundary',
+             [self.obstacle_sprites]),
+            ('map/map_Grass.csv',       'grass',
+             [self.visible_sprites]),
+            ('map/map_Objects.csv',     'object',
+             [self.visible_sprites, self.obstacle_sprites]),
+        ]
+ 
+        floor_blocks_loaded = False
+        for csv_path, sprite_type, groups in LAYERS:
+            try:
+                layer = load_layer(csv_path)
+                entries = list(layer.items())
+                if not entries:
+>>>>>>> game_3_map_fixing
                     continue
             score = abs(tile_x - preferred_x) + abs(tile_y - preferred_y)
             if best_score is None or score < best_score:
@@ -514,6 +575,7 @@ class Level:
     def damage_player(self, amount):
         """Called by enemies when they land an attack."""
         self.player.take_damage(amount)
+<<<<<<< HEAD
 
     # ------------------------------------------------------------------
     # Arcade score/timer helpers
@@ -627,6 +689,24 @@ class Level:
             if hasattr(group, "empty"):
                 group.empty()
         self.enemy_respawn_queue.clear()
+=======
+        if self.player.hp <= 0:
+            self.game_over = True
+
+    def draw_game_over(self):
+        """Draw a simple game-over overlay when the player has no health."""
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.display_surface.blit(overlay, (0, 0))
+
+        title = self.game_over_font.render("GAME OVER", True, (230, 40, 40))
+        title_rect = title.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 35))
+        self.display_surface.blit(title, title_rect)
+
+        hint = self.game_over_small_font.render("Press ESC to quit", True, (255, 255, 255))
+        hint_rect = hint.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 35))
+        self.display_surface.blit(hint, hint_rect)
+>>>>>>> game_3_map_fixing
  
     # ------------------------------------------------------------------
  
@@ -891,6 +971,14 @@ class Level:
             return
 
         self.handle_events(events)
+        if self.game_over or self.player.hp <= 0:
+            self.game_over = True
+            self.visible_sprites.custom_draw(self.player)
+            self.draw_names()
+            self.draw_status()
+            self.draw_game_over()
+            return
+
         self.handle_time_travel_input(events)
         self.handle_enemy_debug_input(events)
  
@@ -998,6 +1086,7 @@ class YSortCameraGroup(pygame.sprite.Group):
         """Draw static map layers first, then enemies, player, and UI."""
         self.offset.x = player.rect.centerx - self.half_width
         self.offset.y = player.rect.centery - self.half_height
+<<<<<<< HEAD
 
         def draw_group(group):
             if not group:
@@ -1013,6 +1102,17 @@ class YSortCameraGroup(pygame.sprite.Group):
 
         for sprite in sorted([sprite for sprite in self.sprites() if sprite is not player],
                              key=lambda item: item.rect.centery):
+=======
+ 
+        ground_sprites = [sprite for sprite in self.sprites() if getattr(sprite, 'sprite_type', None) == 'grass']
+        y_sorted_sprites = [sprite for sprite in self.sprites() if getattr(sprite, 'sprite_type', None) != 'grass']
+
+        for sprite in ground_sprites:
+            offset_pos = sprite.rect.topleft - self.offset
+            self.display_surface.blit(sprite.image, offset_pos)
+
+        for sprite in sorted(y_sorted_sprites, key=lambda sprite: sprite.rect.centery):
+>>>>>>> game_3_map_fixing
             offset_pos = sprite.rect.topleft - self.offset
             self.display_surface.blit(sprite.image, offset_pos)
             if getattr(sprite, "max_health", None) is not None:
